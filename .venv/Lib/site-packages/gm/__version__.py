@@ -1,0 +1,9 @@
+# coding=utf-8
+__title__ = 'gm'
+__description__ = '掘金量化 掘金3 sdk'
+__url__ = 'https://www.myquant.cn/'
+__author__ = 'myquant_dev'
+__author_email__ = 'support@myquant.cn'
+__license__ = 'Apache 2.0'
+__version__ = '3.0.177'
+__dev_version__ = '3.0.177'

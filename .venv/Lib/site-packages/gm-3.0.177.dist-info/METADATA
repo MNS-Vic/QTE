@@ -1,0 +1,290 @@
+Metadata-Version: 2.1
+Name: gm
+Version: 3.0.177
+Summary: 掘金量化 掘金3 sdk
+Home-page: https://www.myquant.cn/
+Author: myquant_dev
+Author-email: support@myquant.cn
+License: Apache 2.0
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Requires-Python: >=3.6, <4
+Description-Content-Type: text/markdown
+Requires-Dist: protobuf (<4.0,>=3.12.2)
+Requires-Dist: typing (>=3.6.2)
+Requires-Dist: tzdata (<=2023.3)
+Requires-Dist: wheel (>=0.37.1)
+Requires-Dist: cachetools (==4.2.4) ; python_version < "3.7"
+Requires-Dist: pandas (<2.0,>=0.23.0) ; python_version <= "3.11"
+Requires-Dist: numpy (<2.0) ; python_version <= "3.11"
+Requires-Dist: typing-extensions (>=4.1.1) ; python_version == "3.7.1"
+Requires-Dist: pandas (>=0.23.0) ; python_version > "3.11"
+Requires-Dist: setuptools (==69.1.1) ; python_version >= "3.12"
+Requires-Dist: cachetools (==5.5.0) ; python_version >= "3.7"
+Provides-Extra: all
+Requires-Dist: scipy (<2,>=1.2.3) ; extra == 'all'
+Provides-Extra: scipy
+Requires-Dist: scipy (<2,>=1.2.3) ; extra == 'scipy'
+
+# 掘金量化
+
+A股实盘量化 中国期货量化 程序化交易 仿真 中国量化第一 掘金3 sdk
+
+## Changelog
+
+### Version v3.0.177
+- fix: 修复正常回测时，报日期格式不正确问题
+- feat: 支持`python3.13`
+
+### Version v3.0.176
+- feat: get_symbol_infos、get_symbols、get_history_symbol 增加返回字段 delisting_begin_date(退市整理开始日)
+- feat: 增加get_open_call_auction 查询开盘集合竞价
+- feat: 增加current_price 查询当前最新价
+- perf: 回测过程变更订阅条件时，如果变更后与之前比较无变化，则回测速度影响不大
+
+### Version v3.0.175
+- fix: 实时模式下策略结束后策略进程异常挂起
+
+### Version v3.0.174
+- feat: 支持算法单批量委托，关联api:
+  - algo_order_batch
+
+### Version v3.0.173
+- feat: 新增标的池功能, 关联api:
+  - universe_delete
+  - universe_set
+  - universe_get_names
+  - universe_get_symbols
+- refactor: 标记部分弃用函数, 替换函数参照 [新老数据函数切换对照表](https://www.myquant.cn/docs2/other/topic/%E6%95%B0%E6%8D%AE%E5%88%87%E6%8D%A2%E9%80%9A%E7%9F%A5.html#_1-%E6%96%B0%E8%80%81%E6%95%B0%E6%8D%AE%E5%87%BD%E6%95%B0%E5%88%87%E6%8D%A2%E5%AF%B9%E7%85%A7%E8%A1%A8)
+
+### Version v3.0.172
+- fix: numpy2语法兼容。 由于numpy2移除了np.NAN，当有空字段返回时会报错
+- feat: 股票分红接口stk_get_dividend、基金分红接口fnd_get_dividend 增加返回字段dvd_target
+- feat: order_volume 支持期货条件单
+- feat: 新增数据接口
+  - stk_get_money_flow
+  - stk_get_finance_audit
+  - stk_get_finance_forecast
+  - fnd_get_share
+  - bnd_get_analysis
+
+### Version v3.0.171
+- fix: 退订后再次订阅数据context.data数据异常
+- fix: 同时存在waitgroup=true和waitgroup=false的订阅时触发on_bar会导致程序崩溃
+
+### Version v3.0.170
+- fix: 订阅多标的、多频率情况下出现context.data缓存异常
+
+### Version v3.0.169
+- fix: 当历史bar数量少于订阅行情时设置的订阅数据滑窗大小时，context.data会出现重复数据。
+- feat: 增加账号连接状态枚举值
+- feat: 增加wheel依赖，避免新python环境安装出错
+- other: 升级capi到3.7.8。
+  - fix: 修正回测下单时交易事件错误时序问题
+  - fix: 回测时委托回报添加待报和已报状态
+
+### Version v3.0.168
+- fix: option_calculate_ivsurface 接口调用出错
+- refactor: 优化对接实时行情服务的兼容性
+- feat: 支持`pandas2`、`numpy2`
+
+### Version 3.0.167
+* feat: 支持多源行情
+* feat: 支持ctp行情直连, 可通过`set_option`接口设置ctp_md_info参数来配置ctp行情连接信息
+* feat: 行情连接、断开回调触发时可通过 context.message 来获取描述信息
+* feat: 回测模式下在策略代码中提前订阅行情再调用current，会根据订阅频度（tick，分钟bar，日线）取回测当前时刻的最新价格返回，超出历史行情权限会报错中止回测；不订阅current会取回测当前时刻最近的日线收盘价返回
+
+### Version 3.0.166
+* fix: current 没有返回"0"值字段
+* fix: get_instruments、get_history_instruments 查询参数fields包含 is_adjusted 时，is_adjusted字段没有返回
+* feat: 新增期货每日成交持仓排名接口（多标的多指标）
+
+### Version 3.0.165
+* fix: 单独订阅 3600s 与 同时订阅 tick 和 3600s 所产生的 3600s 数据 open 和 high 不一致
+* fix: context.data在回测模式下盘中可以取到当天的日线数据(未来数据)
+* feat: 支持`Python 3.12`
+
+### Version 3.0.164
+
+* 修复 context.data 函数bug
+* 移除 arrow 库依赖, 改为使用 Python 原生日期库
+
+### Version 3.0.163
+
+* context.data 优化, 增加两种新的返回类型
+* 新增龙虎榜和北向资金接口
+* 增加 get_cash 和 get_position 接口
+
+### Version 3.0.162
+
+* 添加新的回调函数, on_customized_message - 定制消息推送事件
+* 修改回测时间错误提示文案
+* 日内回测行情提取逻辑调整, 匹配单次33000条记录限制
+* 修正回测内存过大问题
+* 优化 history 和 history_n 速度
+* 增加 tzdata 依赖, 解决 tick 和 bar 转换为 pandas DataFrame 时过慢问题
+
+### Version 3.0.161
+
+* current 函数添加 include_call_auction 入参
+
+### Version 3.0.160
+
+* SDK 支持 Python 3.11 版本
+* 对不常用到的依赖库设置为可选依赖项, 现在默认移除 scipy 库的依赖, 要下载所有依赖可使用 `pip install gm[all]` 命令
+* Pandas 的默认精度改为8位小数
+* 修复 tick 回测模式 created_at 字段毫秒数错误问题
+* 添加新枚举值, 委托类型 OrderType 相关
+
+### Version 3.0.159
+
+* 修复context.data报错问题
+
+### Version 3.0.158
+
+* 修复context.data取日线数据少了最近一天的问题
+* 修复回测模式下，订阅用了wait_group=True，导致定时任务处理时间不对问题
+* Tick增加iopv字段
+* 交易所增加广期所
+
+### Version 3.0.157
+
+* 修正 Order 对象被错误过滤掉 order_business 和 position_src 字段的问题
+
+### Version 3.0.156
+
+* 新增做市API
+* 新增10个财务接口
+* 修复get_history_instruments接口conversion_price字段取数错误问题
+* get_symbols增加股转作市业务相关字段
+* 修正回测错误时，返回错误码与扩展信息不一致问题
+* 增加枚举常量 OrderBusiness_MARKET_MAKING
+
+### Version 3.0.155
+
+* 两融API改造, 补全头寸来源 position_src, 负债合约编号 debtsno 和还款方式 repay_type 三个字段
+* 修复 context.data 获取日线bar时有重复数据的bug
+* current 接口支持 field 过滤
+* 修复 stk_get_index_constituents 接口返回值 weight 为 0 bug
+* Python3.9 的 pandas 库 1.5 版本有bug, 在转带时区的datetime数据时非常慢, 限制 pandas 库的最高版本号避免
+
+### Version 3.0.154
+
+* 修正用广发端时AccountStatus事件中account_name缺失问题
+* 修正AccountStatus状态为6问题
+* SDK 报错提示错误信息文案优化
+* 支持分布式部署, Linux SDK 现在可以连上终端
+* 修复投研数据查询接口返回值时间格式问题
+* 指数成分查询函数stk_get_index_constituents增加总市值和流通市值字段
+* 优化回测时 on_tick 和 on_bar 的性能瓶颈
+* 修复行情连接断开又连上后，订阅行情成功策略却退出问题
+* context.account().status 的类型改为 dict 类型
+
+### Version 3.0.153
+
+* 修复 SDK Python 3.10 版本的第三方依赖库兼容性问题
+
+### Version 3.0.152
+
+* 修复部分老接口日期格式兼容问题
+* 修复 grpc 网络错误问题
+* 限制第三方库最高版本以保证兼容性
+
+### Versino 3.0.151
+
+* 修正使用数据代理时还在读取sdk缓存问题
+* 优化 SDK 依赖项, 保证 SDK 安装兼容性
+
+### Version 3.0.150
+
+* 本地数据代理优化
+* SDK 报错机制改造
+* 新增接口 set_option - 设置策略运行系统选项, 目前支持设置回测运行的最大线程数和触发流控时最大等待时间
+* 优化回测时的超时机制，避免部分回测业务不正常
+* 添加枚举量, 新的委托拒绝原因
+* 接口变更, 查询指数成分股接口新增 trade_date 参数
+* 修复 AccountStatus 查询与推送系列问题
+* 回测模式下载数据时打印相关指引信息
+
+### Version 3.0.149
+
+* 新增广发期权组合保证金API
+
+### Version 3.0.148
+
+* 新增财务数据接口
+* 修复已知 bug
+
+### Version 3.0.147
+
+* 修复启动速度过慢的问题
+* 修复调用 get_history_symbols 接口时进程崩溃退出问题
+
+### Version 3.0.146
+
+* 修复 get_symbols 和 get_history_symbols 接口 bug
+* Tick 类型添加 ask_q, bid_q 字段
+
+### Version 3.0.145
+
+* 新增投研数据查询接口
+* 修复 ipo_get_match_number 和 ipo_get_lot_info 函数日期参数传输错误 bug
+* 修复 get_history_instruments 函数返回值不存在 info 字段时产生的 Bug
+* 修复用 in 判断 BarLikeDict2 对象时无法退出的 bug
+
+### Version 3.0.144
+
+* 修复 get_history_instruments 返回错误的调整标志的 Bug
+
+### Version 3.0.143
+
+* 增加接口 bond_convertible_get_call_info - 查询可转债赎回信息
+
+### Version 3.0.142
+
+* context.data 获取 tick 时返回格式修正为 DataFrame
+* get_history_instrument 增加可转债字段
+* 支持 Python3.10, 弃用 Python2.7
+
+### Version 3.0.141
+
+* 限制 protobuf 版本小于 4.0 防止不兼容情况
+* 修复 get_history_instruments 里获取的保证金比例 margin_ratio 获取的是最新数据而不是历史数据的问题
+
+### Version 3.0.140
+
+* 算法单新增 algo_params 字段
+* 兼容老版本客户端传入错误的默认参数 undefined 的情况
+* 实时模式能正确返回错误信息
+* instrument 添加 conversion_price 字段
+
+### Version 3.0.139
+
+* 修复 Python 3.7.1 版本 typing_extensions 依赖问题, typing_extensions 版本需要大于等于 4.1.1
+* 增加 get_expire_rest_days 查询到期剩余天数
+* 修改 option_covered_open 备兑开仓, 在回测/仿真模式下不占用保证金
+* 修改 option_covered_close 备兑平仓, 在回测/仿真模式下不释放保证金
+* 新增 option_preorder_valid_volume 备兑标志, 可获取备兑可开数量
+* run 函数新增 backtest_match_mode 参数, 设置回测撮合模式, 可设定市价单是否采用当前 bar/tick 撮合成交
+
+### Version 3.0.138
+
+* 策略进程退出前, SDK主动退订已订阅代码, 恢复订阅权限
+* 修复回测模式中在 on_bar 或 on_tick 里下单后资金和持仓没有变化的问题
+* 兼容 Pandas 1.4.0 以上版本
+* option_get_symbols_by_exchange 增加参数 adjust_flag
+* 修复 get_history_instruments 返回的 multiplier 和 exercise_price 字段只取最新数据问题
+* 之前对所有的浮点数四舍五入改为仅对价格类的字段四舍五入4位小数
+* run 添加参数 backtest_commission_unit, 表示回测手续费需要按张收取
+* option_get_symbols_by_in_at_out 添加参数 adjust_flag 来决定选择的合约范围是否包含调整过的合约
+* 修复 get_instruments 的 exchanges 不支持list格式问题
+* 增加针对剩余时间t=0导致分母为0的健壮性处理, 定价模型计算时剩余时间最小值设置为 0.01
+
+

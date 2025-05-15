@@ -1,0 +1,7 @@
+# Linters & Formatters
+flake8
+black
+
+# Testing
+pytest
+pytest-cov 

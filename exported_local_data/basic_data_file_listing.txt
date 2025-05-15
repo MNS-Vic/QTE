@@ -1,0 +1,197 @@
+本地 `myquant_data/basic_data` 目录文件列表 (2025-05-14 14:58:59)
+=======================================================================
+这些文件可能是掘金专有的二进制格式，无法直接转换为CSV而无需格式规范。
+建议通过掘金官方API（如之前创建的 export_gm_data_to_csv.py 脚本）来获取这些数据的可读格式。
+
+文件: basic_data\fund_dividend_snapshot.dat
+  大小: 113.53 KB
+  最后修改时间: 2025-05-14 11:28:19
+---
+文件: basic_data\fund_split_snapshot.dat
+  大小: 51.19 KB
+  最后修改时间: 2025-05-14 11:28:19
+---
+文件: basic_data\stock_dividend_snapshot.dat
+  大小: 1.46 MB
+  最后修改时间: 2025-05-14 11:28:20
+---
+文件: basic_data\day_bar\BK_2024.dat
+  大小: 18.71 MB
+  最后修改时间: 2025-05-14 11:29:09
+---
+文件: basic_data\day_bar\BK_2025.dat
+  大小: 8.36 MB
+  最后修改时间: 2025-05-14 11:29:10
+---
+文件: basic_data\day_bar\CFFEX_2024.dat
+  大小: 4.56 MB
+  最后修改时间: 2025-05-14 11:28:55
+---
+文件: basic_data\day_bar\CFFEX_2025.dat
+  大小: 1.59 MB
+  最后修改时间: 2025-05-14 11:28:56
+---
+文件: basic_data\day_bar\CZCE_2024.dat
+  大小: 23.15 MB
+  最后修改时间: 2025-05-14 11:29:20
+---
+文件: basic_data\day_bar\CZCE_2025.dat
+  大小: 7.48 MB
+  最后修改时间: 2025-05-14 11:29:06
+---
+文件: basic_data\day_bar\DCE_2024.dat
+  大小: 19.21 MB
+  最后修改时间: 2025-05-14 11:29:02
+---
+文件: basic_data\day_bar\DCE_2025.dat
+  大小: 6.66 MB
+  最后修改时间: 2025-05-14 11:29:04
+---
+文件: basic_data\day_bar\GFEX_2024.dat
+  大小: 2.01 MB
+  最后修改时间: 2025-05-14 11:29:07
+---
+文件: basic_data\day_bar\GFEX_2025.dat
+  大小: 1.05 MB
+  最后修改时间: 2025-05-14 11:29:07
+---
+文件: basic_data\day_bar\INE_2024.dat
+  大小: 5.20 MB
+  最后修改时间: 2025-05-14 11:29:06
+---
+文件: basic_data\day_bar\INE_2025.dat
+  大小: 1.83 MB
+  最后修改时间: 2025-05-14 11:29:07
+---
+文件: basic_data\day_bar\SHFE_2024.dat
+  大小: 18.22 MB
+  最后修改时间: 2025-05-14 11:28:58
+---
+文件: basic_data\day_bar\SHFE_2025.dat
+  大小: 6.20 MB
+  最后修改时间: 2025-05-14 11:28:59
+---
+文件: basic_data\day_bar\SHSE_2024.dat
+  大小: 203.37 MB
+  最后修改时间: 2025-05-14 11:28:28
+---
+文件: basic_data\day_bar\SHSE_2025.dat
+  大小: 72.11 MB
+  最后修改时间: 2025-05-14 11:28:33
+---
+文件: basic_data\day_bar\SZSE_2024.dat
+  大小: 244.92 MB
+  最后修改时间: 2025-05-14 11:28:48
+---
+文件: basic_data\day_bar\SZSE_2025.dat
+  大小: 85.61 MB
+  最后修改时间: 2025-05-14 11:28:54
+---
+文件: basic_data\history_instrument\BK_2024.dat
+  大小: 19.91 MB
+  最后修改时间: 2025-05-14 11:29:18
+---
+文件: basic_data\history_instrument\BK_2025.dat
+  大小: 7.61 MB
+  最后修改时间: 2025-05-14 11:29:19
+---
+文件: basic_data\history_instrument\CFFEX_2024.dat
+  大小: 4.92 MB
+  最后修改时间: 2025-05-14 11:29:11
+---
+文件: basic_data\history_instrument\CFFEX_2025.dat
+  大小: 1.75 MB
+  最后修改时间: 2025-05-14 11:29:12
+---
+文件: basic_data\history_instrument\CZCE_2024.dat
+  大小: 23.21 MB
+  最后修改时间: 2025-05-14 11:29:16
+---
+文件: basic_data\history_instrument\CZCE_2025.dat
+  大小: 8.35 MB
+  最后修改时间: 2025-05-14 11:29:16
+---
+文件: basic_data\history_instrument\DCE_2024.dat
+  大小: 21.00 MB
+  最后修改时间: 2025-05-14 11:29:13
+---
+文件: basic_data\history_instrument\DCE_2025.dat
+  大小: 7.40 MB
+  最后修改时间: 2025-05-14 11:29:15
+---
+文件: basic_data\history_instrument\GFEX_2024.dat
+  大小: 2.20 MB
+  最后修改时间: 2025-05-14 11:29:17
+---
+文件: basic_data\history_instrument\GFEX_2025.dat
+  大小: 1.16 MB
+  最后修改时间: 2025-05-14 11:29:18
+---
+文件: basic_data\history_instrument\INE_2024.dat
+  大小: 5.78 MB
+  最后修改时间: 2025-05-14 11:29:17
+---
+文件: basic_data\history_instrument\INE_2025.dat
+  大小: 2.04 MB
+  最后修改时间: 2025-05-14 11:29:17
+---
+文件: basic_data\history_instrument\SHFE_2024.dat
+  大小: 19.76 MB
+  最后修改时间: 2025-05-14 11:29:12
+---
+文件: basic_data\history_instrument\SHFE_2025.dat
+  大小: 6.85 MB
+  最后修改时间: 2025-05-14 11:29:13
+---
+文件: basic_data\history_instrument\SHSE_2024.dat
+  大小: 279.00 MB
+  最后修改时间: 2025-05-14 11:28:40
+---
+文件: basic_data\history_instrument\SHSE_2025.dat
+  大小: 102.11 MB
+  最后修改时间: 2025-05-14 11:28:47
+---
+文件: basic_data\history_instrument\SZSE_2024.dat
+  大小: 308.97 MB
+  最后修改时间: 2025-05-14 11:29:04
+---
+文件: basic_data\history_instrument\SZSE_2025.dat
+  大小: 109.61 MB
+  最后修改时间: 2025-05-14 11:29:10
+---
+文件: basic_data\latest_instrument\BK.dat
+  大小: 73.48 KB
+  最后修改时间: 2025-05-14 11:28:25
+---
+文件: basic_data\latest_instrument\CFFEX.dat
+  大小: 139.64 KB
+  最后修改时间: 2025-05-14 11:28:22
+---
+文件: basic_data\latest_instrument\CZCE.dat
+  大小: 692.57 KB
+  最后修改时间: 2025-05-14 11:28:24
+---
+文件: basic_data\latest_instrument\DCE.dat
+  大小: 635.74 KB
+  最后修改时间: 2025-05-14 11:28:24
+---
+文件: basic_data\latest_instrument\GFEX.dat
+  大小: 21.03 KB
+  最后修改时间: 2025-05-14 11:28:25
+---
+文件: basic_data\latest_instrument\INE.dat
+  大小: 77.19 KB
+  最后修改时间: 2025-05-14 11:28:25
+---
+文件: basic_data\latest_instrument\SHFE.dat
+  大小: 704.62 KB
+  最后修改时间: 2025-05-14 11:28:23
+---
+文件: basic_data\latest_instrument\SHSE.dat
+  大小: 1001.51 KB
+  最后修改时间: 2025-05-14 11:28:20
+---
+文件: basic_data\latest_instrument\SZSE.dat
+  大小: 1.17 MB
+  最后修改时间: 2025-05-14 11:28:21
+---
