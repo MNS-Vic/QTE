@@ -239,9 +239,11 @@ class BaseDataReplayController(DataReplayInterface):
             
             if self._mode in [ReplayMode.REALTIME, ReplayMode.ACCELERATED, ReplayMode.BACKTEST]:
                 # 在单独线程中运行
+                logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Preparing to start _replay_task thread.") # DEBUG
                 self._replay_thread = threading.Thread(target=self._replay_task)
                 self._replay_thread.daemon = True
                 self._replay_thread.start()
+                logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _replay_task thread started.") # DEBUG
             
             logger.info(f"开始数据重放，模式: {self._mode.name}, 速度因子: {self._speed_factor}")
             return True
@@ -435,61 +437,69 @@ class BaseDataReplayController(DataReplayInterface):
     
     def reset(self) -> bool:
         """
-        重置重放器状态
-        
-        Returns
-        -------
-        bool
-            是否成功重置
+        重置重放控制器状态，允许从头开始重新运行。
+        子类应确保其数据迭代器也被重置。
         """
         with self._lock:
             if self._status == ReplayStatus.RUNNING:
-                self.stop()
-            
+                logger.warning("不能在运行时重置，请先停止重放。")
+                return False
             self._current_position = 0
             self._status = ReplayStatus.INITIALIZED
-            logger.info("重放器已重置")
+            self._event.set() # 确保线程可以开始，如果 start() 被调用
+            logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Controller reset.") # DEBUG
             return True
     
     def _replay_task(self):
-        """重放线程的主任务函数"""
+        """
+        实际的数据重放循环，在单独的线程中运行。
+        子类应通过 _get_next_data_point() 提供数据。
+        """
+        logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _replay_task entered.") # DEBUG
         try:
-            while self._status == ReplayStatus.RUNNING:
-                # 等待事件，支持暂停/恢复
-                self._event.wait()
+            while self._status == ReplayStatus.RUNNING: # and self._current_position < len(self._data) (len(_data) check is in DataFrameReplayController)
+                if not self._event.is_set(): # 如果事件未置位 (即暂停)
+                    logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _replay_task paused, waiting for event to be set.") # DEBUG
+                    self._event.wait() # 阻塞直到事件被置位 (resume)
+                    logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _replay_task resumed.") # DEBUG
                 
-                # 如果状态变更，则退出
-                if self._status != ReplayStatus.RUNNING:
+                if self._status != ReplayStatus.RUNNING: # 再次检查状态，因为wait后可能已改变
+                    logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Status changed after wait, exiting _replay_task. Status: {self._status.name}") # DEBUG
                     break
-                
-                # 获取下一个数据点
+
                 data_point = self._get_next_data_point()
                 if data_point is None:
-                    with self._lock:
-                        self._status = ReplayStatus.COMPLETED
-                    logger.info("重放已完成所有数据")
-                    break
+                    logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _get_next_data_point returned None, assuming end of data.") # DEBUG
+                    break # 没有更多数据
                 
-                # 根据模式和速度控制重放节奏
+                # logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Got data_point, notifying callbacks. Pos: {self._current_position}") # DEBUG - can be very verbose
+                self._notify_callbacks(data_point)
                 self._control_replay_pace(data_point)
                 
-                # 触发回调
-                self._notify_callbacks(data_point)
-                
+                # 检查是否是步进模式并且需要暂停
+                if self._mode == ReplayMode.STEPPED:
+                    self._status = ReplayStatus.PAUSED
+                    self._event.clear() # 清除事件，使下一次循环在wait处阻塞
+                    logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): STEPPED mode, pausing after one step.") # DEBUG
+
         except Exception as e:
-            logger.error(f"重放过程中发生错误: {str(e)}")
-            with self._lock:
-                self._status = ReplayStatus.STOPPED
-    
+            logger.error(f"重放任务出错 ({self.__class__.__name__}): {e}", exc_info=True)
+            self._status = ReplayStatus.ERROR
+        finally:
+            if self._status not in [ReplayStatus.STOPPED, ReplayStatus.ERROR, ReplayStatus.PAUSED]: # 如果是PAUSED (因为STEPPED),不设为COMPLETED
+                self._status = ReplayStatus.COMPLETED
+            logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): _replay_task finished. Final status: {self._status.name}")
+
     def _notify_callbacks(self, data_point):
-        """触发所有注册的回调函数"""
-        callbacks = list(self._callbacks.values())
-        for callback in callbacks:
+        """通知所有注册的回调函数"""
+        # logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Notifying {len(self._callbacks)} callbacks.") # DEBUG - can be verbose
+        for cb_id, callback in list(self._callbacks.items()): # 使用list副本以允许在回调中注销自身
             try:
+                # logger.info(f"DEBUG REPLAY_CTRL ({self.__class__.__name__}): Calling callback {cb_id} for data_point.") # DEBUG - very verbose
                 callback(data_point)
             except Exception as e:
-                logger.error(f"执行回调时发生错误: {str(e)}")
-    
+                logger.error(f"执行数据重放回调 {cb_id} 时出错: {e}", exc_info=True)
+
     def _control_replay_pace(self, data_point):
         """根据重放模式和速度控制重放节奏"""
         if self._mode == ReplayMode.BACKTEST:

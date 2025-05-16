@@ -8,3 +8,4 @@ gm==3.0.*   # 掘金API
 pytest>=6.0.0
 python-dateutil>=2.8.2
 pytz>=2021.3 
+vectorbt 
