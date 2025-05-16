@@ -32,6 +32,21 @@ class EventLoop:
         self.handlers = {}  # 事件处理器字典，格式为：{事件类型: [处理函数列表]}
         self.continue_backtest = True  # 是否继续回测
     
+    def _get_handler_name(self, handler_func: Callable) -> str:
+        """
+        安全获取处理器函数的名称
+        
+        Args:
+            handler_func: 处理器函数
+            
+        Returns:
+            str: 处理器函数的名称
+        """
+        try:
+            return handler_func.__name__
+        except AttributeError:
+            return str(handler_func)
+    
     def register_handler(self, event_type: Union[str, EventType], handler_func: Callable[[Event], None]):
         """
         注册事件处理器
@@ -51,7 +66,7 @@ class EventLoop:
         
         if handler_func not in self.handlers[key]:
             self.handlers[key].append(handler_func)
-            logger.debug(f"已注册事件处理器: {key} -> {handler_func.__name__}")
+            logger.debug(f"已注册事件处理器: {key} -> {self._get_handler_name(handler_func)}")
     
     def unregister_handler(self, event_type: Union[str, EventType], handler_func: Callable[[Event], None]):
         """
@@ -69,7 +84,7 @@ class EventLoop:
 
         if key in self.handlers and handler_func in self.handlers[key]:
             self.handlers[key].remove(handler_func)
-            logger.debug(f"已注销事件处理器: {key} -> {handler_func.__name__}")
+            logger.debug(f"已注销事件处理器: {key} -> {self._get_handler_name(handler_func)}")
     
     def put_event(self, event: Event):
         """
@@ -113,6 +128,21 @@ class EventLoop:
         
         logger.warning(f"未找到事件类型 {event.event_type} 的处理器")
         return False
+    
+    def _process_next_event(self) -> bool:
+        """
+        处理队列中的下一个事件
+        
+        用于测试和调试目的
+        
+        Returns:
+            bool: 是否成功处理事件
+        """
+        event = self.get_next_event()
+        if event is None:
+            return False
+        
+        return self.dispatch_event(event)
     
     def run(self, max_events: Optional[int] = None) -> int:
         """

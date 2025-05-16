@@ -87,7 +87,7 @@ class SimpleExecutionHandler(ExecutionHandler):
         app_logger.info(f"订单成交: {fill_event.symbol} {fill_event.direction} {fill_event.quantity} @ {fill_event.fill_price} (佣金: {fill_event.commission:.2f})")
         
         # 发送成交事件
-        self.event_loop.add_event(fill_event)
+        self.event_loop.put_event(fill_event)
     
     def _get_fill_price(self, symbol: str) -> float:
         """

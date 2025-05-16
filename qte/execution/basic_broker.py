@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Union, Any  # 添加Any导入
 import random # 用于模拟滑点
 import logging
@@ -34,13 +34,13 @@ class SimpleRandomSlippage(SlippageModel):
         market_event: Optional[MarketEvent] = None # 可以使用市场波动性等
     ) -> float:
         if random.random() < self.slippage_chance:
-            slippage_amount = self.slippage_points * random.choice([-1, 1]) # 随机正向或负向滑点
+            # 无论随机选择的滑点方向如何，总是朝不利的方向适用滑点
             if direction == OrderDirection.BUY:
                 # 买入时，滑点使价格变高 (不利)
-                return intended_price + abs(slippage_amount)
+                return intended_price + self.slippage_points
             else: # SELL
                 # 卖出时，滑点使价格变低 (不利)
-                return intended_price - abs(slippage_amount)
+                return intended_price - self.slippage_points
         return intended_price
 
 # --- 基础模拟经纪商 --- #
@@ -127,7 +127,7 @@ class BasicBroker(BrokerSimulator):
 
             # 创建并发送 FillEvent
             fill = FillEvent(
-                order_id=order.order_id or f"sim_ord_{datetime.utcnow().timestamp()}", # 如果订单没有ID，生成一个
+                order_id=order.order_id or f"sim_ord_{datetime.now(timezone.utc).timestamp()}", # 如果订单没有ID，生成一个
                 symbol=order.symbol,
                 timestamp=order.timestamp + timedelta(microseconds=100), # 模拟微小的执行延迟
                 direction=order.direction,
@@ -164,7 +164,7 @@ if __name__ == '__main__':
             if symbol in self._prices:
                 price = self._prices[symbol]
                 self._prices[symbol] += random.uniform(-0.1, 0.1) # 价格小幅波动
-                return {"datetime": datetime.utcnow(), "symbol": symbol, "close": price, "open":price, "high":price, "low":price, "volume":100}
+                return {"datetime": datetime.now(timezone.utc), "symbol": symbol, "close": price, "open":price, "high":price, "low":price, "volume":100}
             return None
 
     mock_dp_broker = MockDataProviderBrokerTest()
@@ -186,7 +186,7 @@ if __name__ == '__main__':
         order_type=OrderType.MARKET,
         direction=OrderDirection.BUY,
         quantity=10,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.now(timezone.utc)
     )
     broker.submit_order(market_order_buy)
 
@@ -198,7 +198,7 @@ if __name__ == '__main__':
         order_type=OrderType.MARKET,
         direction=OrderDirection.SELL,
         quantity=5,
-        timestamp=datetime.utcnow() + timedelta(seconds=1)
+        timestamp=datetime.now(timezone.utc) + timedelta(seconds=1)
     )
     broker.submit_order(market_order_sell)
     
@@ -211,7 +211,7 @@ if __name__ == '__main__':
         direction=OrderDirection.BUY,
         quantity=2,
         limit_price=95.0, # 设置一个较低的限价
-        timestamp=datetime.utcnow() + timedelta(seconds=2)
+        timestamp=datetime.now(timezone.utc) + timedelta(seconds=2)
     )
     broker.submit_order(limit_order_buy)
 

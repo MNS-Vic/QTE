@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Union, Optional, Dict, Any
 
@@ -21,16 +21,21 @@ class Event:
     所有事件类型都应继承此类
     """
     
-    def __init__(self, event_type: str, timestamp: Optional[datetime] = None):
+    def __init__(self, event_type: str, timestamp: Optional[datetime] = None, **kwargs):
         """
         初始化事件
         
         Args:
             event_type: 事件类型
             timestamp: 事件时间戳，如果为None则使用当前时间
+            **kwargs: 额外的属性
         """
         self.event_type = event_type
-        self.timestamp = timestamp or datetime.now()
+        self.timestamp = timestamp or datetime.now(timezone.utc)
+        
+        # 添加额外属性
+        for key, value in kwargs.items():
+            setattr(self, key, value)
     
     def __str__(self):
         return f"{self.event_type} 事件 (时间: {self.timestamp})"
@@ -70,7 +75,7 @@ class MarketEvent(Event):
         self.additional_data = additional_data or {}
     
     def __str__(self):
-        return (f"市场事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
+        return (f"MARKET 市场事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
                 f"收盘价: {self.close_price:.2f})")
 
 @dataclass
@@ -104,19 +109,19 @@ class SignalEvent(Event):
     
     def __str__(self):
         direction_str = "多头" if self.direction > 0 else "空头" if self.direction < 0 else "平仓"
-        return (f"信号事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
+        return (f"SIGNAL 信号事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
                 f"类型: {self.signal_type}, 方向: {direction_str}, 强度: {self.strength:.2f})")
 
 class OrderType(Enum):
     MARKET = "MKT"
     LIMIT = "LMT"
-    STOP = "STP"
-    STOP_LIMIT = "STP_LMT"
+    STOP = "STOP"  # 修改为STOP而不是STP
+    STOP_LIMIT = "STOP_LMT"
     # Add more specific order types if needed # 如果需要，添加更具体的订单类型
 
 class OrderDirection(Enum):
-    BUY = "BUY"
-    SELL = "SELL"
+    BUY = 1  # 修改为整数值1
+    SELL = -1  # 修改为整数值-1
 
 @dataclass
 class OrderEvent(Event):
@@ -164,7 +169,7 @@ class OrderEvent(Event):
         
         if isinstance(direction, OrderDirection):
             self.original_direction_enum = direction
-            self._direction_int = 1 if direction == OrderDirection.BUY else -1
+            self._direction_int = direction.value
         elif isinstance(direction, int):
             self._direction_int = direction
             if direction == 1:
@@ -188,7 +193,7 @@ class OrderEvent(Event):
         direction_str = "多头" if self.direction > 0 else "空头" if self.direction < 0 else "平仓"
         price_str = f", 价格: {self.price:.2f}" if self.price is not None else ""
         oid_str = f", ID: {self.order_id}" if self.order_id else ""
-        return (f"订单事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
+        return (f"ORDER 订单事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
                 f"类型: {self.order_type}, 方向: {direction_str}, 数量: {self.quantity}{price_str}{oid_str})")
 
 @dataclass
@@ -248,7 +253,7 @@ class FillEvent(Event):
     
         if isinstance(direction, OrderDirection):
             self.original_direction_enum = direction
-            self._direction_int = 1 if direction == OrderDirection.BUY else -1
+            self._direction_int = direction.value
         elif isinstance(direction, int):
             self._direction_int = direction
             if direction == 1:
@@ -267,6 +272,6 @@ class FillEvent(Event):
 
     def __str__(self):
         direction_str = "多头" if self.direction > 0 else "空头" if self.direction < 0 else "平仓"
-        return (f"成交事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
+        return (f"FILL 成交事件 (品种: {self.symbol}, 时间: {self.timestamp}, "
                 f"方向: {direction_str}, 数量: {self.quantity}, 价格: {self.fill_price:.2f}, "
                 f"手续费: {self.commission:.2f})")

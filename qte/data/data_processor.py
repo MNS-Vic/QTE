@@ -172,9 +172,13 @@ class DataProcessor:
         
         # 根据方法创建通用索引
         if method.lower() == 'outer':
-            common_index = all_indices[0].union(*all_indices[1:])
+            # 修复：使用reduce方法逐个合并索引
+            from functools import reduce
+            common_index = reduce(lambda x, y: x.union(y, sort=True), all_indices)
         elif method.lower() == 'inner':
-            common_index = all_indices[0].intersection(*all_indices[1:])
+            # 修复：使用reduce方法逐个合并索引
+            from functools import reduce
+            common_index = reduce(lambda x, y: x.intersection(y, sort=True), all_indices)
         else:
             raise ValueError(f"不支持的对齐方法: {method}. 支持的方法: 'outer', 'inner'")
         
@@ -187,9 +191,9 @@ class DataProcessor:
             # 应用填充方法（如果指定）
             if fill_method:
                 if fill_method.lower() == 'ffill':
-                    aligned_df = aligned_df.fillna(method='ffill')
+                    aligned_df = aligned_df.ffill()  # 使用ffill代替fillna(method='ffill')
                 elif fill_method.lower() == 'bfill':
-                    aligned_df = aligned_df.fillna(method='bfill')
+                    aligned_df = aligned_df.bfill()  # 使用bfill代替fillna(method='bfill')
                 elif fill_method.lower() == 'zero':
                     aligned_df = aligned_df.fillna(0)
                 else:
@@ -235,9 +239,11 @@ class DataProcessor:
         df = data.copy()
         
         if method.lower() == 'ffill':
-            return df.fillna(method='ffill', limit=limit)
+            # 修复：使用ffill方法代替fillna(method='ffill')
+            return df.ffill(limit=limit)
         elif method.lower() == 'bfill':
-            return df.fillna(method='bfill', limit=limit)
+            # 修复：使用bfill方法代替fillna(method='bfill')
+            return df.bfill(limit=limit)
         elif method.lower() == 'zero':
             return df.fillna(0)
         elif method.lower() == 'mean':

@@ -1,13 +1,15 @@
 import pandas as pd
 import time
 import os
-from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union
+from datetime import datetime, timedelta, date
 
-class GmQuantSource:
+from ..data_source_interface import BaseDataSource
+
+class GmQuantSource(BaseDataSource):
     """掘金量化数据源实现"""
     
-    def __init__(self, token: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, use_cache: bool = True, **kwargs):
         """
         初始化掘金量化数据源
         
@@ -15,7 +17,10 @@ class GmQuantSource:
         ----------
         token : Optional[str], optional
             掘金量化API的Token, by default None
+        use_cache : bool, optional
+            是否使用缓存, by default True
         """
+        super().__init__(use_cache=use_cache, **kwargs)
         self.token = token
         self.gm_client = None
         self.connected = False

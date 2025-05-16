@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import pandas as pd
 
 # Attempt to import OrderDirection from a plausible location
 # Assuming events.py is in qte.core
@@ -39,6 +40,8 @@ class Position:
     last_update_time: Optional[datetime] = None # 最后更新时间
     
     trades: List[Trade] = field(default_factory=list) # 详细的交易记录
+    position_history: List[Dict[str, Any]] = field(default_factory=list)  # 持仓历史记录
+    _last_trade: Optional[Trade] = None  # 最后一笔交易，用于记录历史
 
     def update_market_value(self, current_price: float, timestamp: Optional[datetime] = None) -> None:
         """根据当前市场价格更新市值和未实现盈亏"""
@@ -53,12 +56,17 @@ class Position:
         else:
             self.unrealized_pnl = 0.0
         self.last_update_time = timestamp if timestamp else datetime.now()
+        
+        # 记录持仓历史，如果有最近的交易记录
+        if self._last_trade:
+            self._record_position_snapshot(current_price)
 
     def add_trade(self, trade: Trade) -> None:
         """
         记录一笔交易，并更新持仓状态 (数量, 平均成本, 已实现盈亏)。
         """
         self.trades.append(trade)
+        self._last_trade = trade  # 保存当前交易用于历史记录
         
         # 记录交易前的总成本和总数量，方便计算平均成本变化
         # 注意：这里的实现逻辑是为了简化，实际的平均成本计算可能更复杂，尤其涉及部分平仓和先进先出等规则
@@ -112,11 +120,56 @@ class Position:
             self.average_cost = 0.0
             
         # 更新市值和未实现盈亏
-        self.update_market_value(self.last_price if self.last_price > 0 else trade.price, trade.timestamp)
+        self.update_market_value(trade.price, trade.timestamp)
         
         # 加上手续费到已实现盈亏
         self.realized_pnl -= trade.commission
 
+    def _record_position_snapshot(self, current_price: float) -> None:
+        """记录当前持仓状态快照到历史记录"""
+        if not self._last_trade:
+            return
+            
+        history_entry = {
+            'timestamp': self.last_update_time,
+            'quantity': self.quantity,
+            'average_cost': self.average_cost,
+            'market_value': self.market_value,
+            'unrealized_pnl': self.unrealized_pnl,
+            'realized_pnl': self.realized_pnl,
+            'last_price': current_price,
+            'trade_direction': self._last_trade.direction,
+            'trade_quantity': self._last_trade.quantity,
+            'trade_price': self._last_trade.price,
+            'trade_commission': self._last_trade.commission
+        }
+        
+        # 只有在position_history为空或者当前记录和上一条记录不同时才添加
+        if not self.position_history or self.position_history[-1]['last_price'] != current_price:
+            self.position_history.append(history_entry)
+
+    def get_position_history(self) -> pd.DataFrame:
+        """
+        获取持仓历史记录，返回一个DataFrame，包含每次交易后的持仓状态
+        
+        Returns:
+            pd.DataFrame: 包含以下列的DataFrame:
+                - timestamp: 交易时间
+                - quantity: 交易后的持仓数量
+                - average_cost: 交易后的平均成本
+                - market_value: 交易后的市值
+                - unrealized_pnl: 交易后的未实现盈亏
+                - realized_pnl: 交易后的已实现盈亏
+                - last_price: 交易时的市场价格
+                - trade_direction: 交易方向 (BUY/SELL)
+                - trade_quantity: 交易数量
+                - trade_price: 交易价格
+                - trade_commission: 交易佣金
+        """
+        if not self.position_history:
+            return pd.DataFrame()
+        
+        return pd.DataFrame(self.position_history)
 
     def __repr__(self) -> str:
         return (

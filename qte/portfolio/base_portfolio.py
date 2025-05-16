@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Any, List, Union # 添加了 Union
 import math # 用于处理可能的NaN值和取整
 import random # 用于生成 order_id
+import pandas as pd
 
 from qte.core.events import Event, FillEvent, MarketEvent, OrderEvent, SignalEvent, OrderType, OrderDirection, EventType
 from qte.core.event_loop import EventLoop
@@ -42,11 +43,17 @@ class BasePortfolio(Portfolio):
         self.realized_pnl: float = 0.0
         self.unrealized_pnl: float = 0.0
         self.total_commission: float = 0.0
+        
+        # 投资组合历史记录
+        self.portfolio_history: List[Dict[str, Any]] = []
 
         # 为订单生成注册处理器（如果Portfolio也需要监听OrderEvent自身的状态，例如被拒绝等）
         # self.event_loop.register_handler(EventType.ORDER, self.on_order_status_update)
         # 注册信号事件处理器
         self.event_loop.register_handler(EventType.SIGNAL, self.on_signal)
+        
+        # 记录初始状态
+        self._record_portfolio_snapshot(datetime.now(timezone.utc))
 
         app_logger.info(f"基础投资组合已初始化，初始资金: {initial_capital:.2f}")
 
@@ -62,6 +69,22 @@ class BasePortfolio(Portfolio):
                 market_value = position.get('quantity', 0) * current_market_prices[symbol]
             holdings_value += market_value
         return self.current_cash + holdings_value
+    
+    def _record_portfolio_snapshot(self, timestamp: datetime) -> None:
+        """记录当前投资组合状态到历史记录"""
+        holdings_value = sum(position.get('market_value', 0.0) for position in self.positions.values())
+        
+        snapshot = {
+            'timestamp': timestamp,
+            'total_equity': self.current_cash + holdings_value,
+            'cash': self.current_cash,
+            'holdings_value': holdings_value,
+            'realized_pnl': self.realized_pnl,
+            'unrealized_pnl': self.unrealized_pnl,
+            'positions_count': len(self.positions)
+        }
+        
+        self.portfolio_history.append(snapshot)
 
     def on_signal(self, event: SignalEvent) -> None:
         """
@@ -153,6 +176,9 @@ class BasePortfolio(Portfolio):
         )
         app_logger.info(f"投资组合为信号 {signal_type} ({symbol}) 生成目标导向订单: {order_to_send.direction} {order_to_send.quantity} @ {order_to_send.order_type} ID: {order_to_send.order_id}")
         self.event_loop.put_event(order_to_send)
+        
+        # 记录投资组合快照
+        self._record_portfolio_snapshot(event.timestamp)
 
     def on_fill(self, fill_event: FillEvent) -> None:
         """
@@ -180,7 +206,8 @@ class BasePortfolio(Portfolio):
                 "avg_cost_price": fill_price,
                 "market_value": direction_multiplier * fill_qty * fill_price, # 初始市值
                 "unrealized_pnl": 0.0,
-                "realized_pnl": -commission # 初始已实现盈亏为佣金
+                "realized_pnl": -commission, # 初始已实现盈亏为佣金
+                "last_known_price": fill_price
             }
         else: # 更新现有仓位
             current_qty = current_pos["quantity"]
@@ -198,137 +225,160 @@ class BasePortfolio(Portfolio):
                 
                 self.realized_pnl += realized_pnl_trade
                 current_pos["realized_pnl"] += realized_pnl_trade
-                # del self.positions[symbol] # 从字典中移除已平仓位，或者标记为0
                 current_pos["quantity"] = 0
-                current_pos["avg_cost_price"] = 0 # 或 None
+                current_pos["avg_cost_price"] = 0
                 current_pos["market_value"] = 0
                 current_pos["unrealized_pnl"] = 0
-            elif new_qty * current_qty >= 0: # 同方向加仓
-                new_avg_cost = ((current_avg_cost * current_qty) + 
-                                (direction_multiplier * fill_qty * fill_price)) / new_qty
-                if direction_multiplier < 0 and current_qty < 0 : # 加空仓
-                     new_avg_cost = ((current_avg_cost * abs(current_qty)) + 
-                                (fill_qty * fill_price)) / abs(new_qty)
-                elif direction_multiplier > 0 and current_qty > 0: # 加多仓
-                    new_avg_cost = ((current_avg_cost * current_qty) + 
-                                (fill_qty * fill_price)) / new_qty
-                else: # 开新仓（理论上在 not current_pos 分支处理了，这里可以是错误或特殊情况）
-                    app_logger.warning(f"异常持仓更新逻辑 for {symbol}")
-                    new_avg_cost = fill_price
-
-                current_pos["quantity"] = new_qty
-                current_pos["avg_cost_price"] = new_avg_cost
-                current_pos["realized_pnl"] -= commission # 佣金计入已实现P&L
-                self.realized_pnl -= commission
-            else: # 反向开仓，意味着部分平仓并可能反向开新仓 (简化处理：先平后开)
-                  # 这个基础版本在on_signal中做了简化，会先发平仓单
-                  # 这里假设fill是针对一个方向的，不会一个fill同时平仓又反向开仓
-                app_logger.warning(f"成交事件 {fill_event.order_id} 导致合约 {symbol} 反向开仓，但基础投资组合的信号逻辑应先平仓。请检查流程。")
-                # 为简化，我们只更新数量和成本，实际已实现盈亏计算会更复杂
-                # 此场景下，应该认为旧仓位已平，产生已实现盈亏，然后新开仓
-                # 暂时按加权平均处理，但这不完全准确反映部分平仓的P&L
-                # 正确做法是在成交回报时明确是开仓还是平仓
-                old_realized_pnl = (fill_price - current_avg_cost) * (-current_qty) # 假设全部旧仓位按此成交价平掉的P&L (不含佣金)
-                if current_qty < 0: # 平空
-                    old_realized_pnl = (current_avg_cost - fill_price) * abs(current_qty)
-                else: # 平多
-                    old_realized_pnl = (fill_price - current_avg_cost) * current_qty
+                current_pos["last_known_price"] = fill_price
+            elif (current_qty > 0 and new_qty > 0) or (current_qty < 0 and new_qty < 0): # 加仓或减仓 (不改变仓位方向)
+                if abs(new_qty) < abs(current_qty): # 减仓 (部分平仓)
+                    # 计算平仓部分的已实现盈亏
+                    closed_quantity = abs(current_qty) - abs(new_qty)
+                    if current_qty > 0: # 减多头
+                        realized_pnl_trade = (fill_price - current_avg_cost) * closed_quantity - commission
+                    else: # 减空头
+                        realized_pnl_trade = (current_avg_cost - fill_price) * closed_quantity - commission
+                    
+                    self.realized_pnl += realized_pnl_trade
+                    current_pos["realized_pnl"] += realized_pnl_trade
+                else: # 加仓
+                    # 简化的加权平均成本计算
+                    if current_qty > 0: # 加多头
+                        current_pos["avg_cost_price"] = (current_qty * current_avg_cost + fill_qty * fill_price) / new_qty
+                    else: # 加空头
+                        current_pos["avg_cost_price"] = (current_qty * current_avg_cost - fill_qty * fill_price) / new_qty
                 
-                self.realized_pnl += old_realized_pnl - commission
-                current_pos["realized_pnl"] += old_realized_pnl - commission
-                
+                # 更新持仓
                 current_pos["quantity"] = new_qty
-                current_pos["avg_cost_price"] = fill_price # 反向开仓，成本价为当前成交价
-        
-        # 重新计算该合约的未实现盈亏 (基于当前持仓成本和平仓前的最后市价，或用成交价作为临时市价)
-        # self.update_on_market_data(MarketEvent(symbol=symbol, timestamp=fill_event.timestamp, close_price=fill_price, open_price=fill_price, high_price=fill_price, low_price=fill_price, volume=0))
-        # 如果方法名已改为 on_market，这里也需要相应修改，或者确保 on_market 能被正确调用
-        # 为避免循环或意外调用，这里暂时直接更新必要的字段，或依赖外部的 MarketEvent 来触发 on_market
-        # 考虑到 on_fill 的主要职责是处理成交本身，市值和未实现盈亏的精确更新应由独立的 MarketEvent 触发的 on_market 负责
-        # 此处可以简单记录成交价作为该持仓的最新参考价，供后续 on_market 使用，或部分更新
-        if symbol in self.positions and self.positions[symbol]["quantity"] != 0:
-            pos = self.positions[symbol]
-            pos["last_known_price"] = fill_price # 记录成交价作为最新已知价格
-            # 市值和未实现P&L的全面更新留给 on_market
+                current_pos["market_value"] = new_qty * fill_price
+                current_pos["unrealized_pnl"] = (fill_price - current_pos["avg_cost_price"]) * new_qty if new_qty > 0 else (current_pos["avg_cost_price"] - fill_price) * abs(new_qty)
+                current_pos["last_known_price"] = fill_price
+            else: # 反向交易 (多变空或空变多)
+                # 先平仓，获取全部已实现盈亏
+                if current_qty > 0: # 平多开空
+                    realized_pnl_trade = (fill_price - current_avg_cost) * current_qty
+                else: # 平空开多  
+                    realized_pnl_trade = (current_avg_cost - fill_price) * abs(current_qty)
+                
+                # 佣金
+                realized_pnl_trade -= commission
+                
+                # 更新总体盈亏
+                self.realized_pnl += realized_pnl_trade
+                current_pos["realized_pnl"] += realized_pnl_trade
+                
+                # 设置新仓位
+                current_pos["quantity"] = new_qty
+                current_pos["avg_cost_price"] = fill_price # 简化：新的反向仓位的平均成本就是当前成交价
+                current_pos["market_value"] = new_qty * fill_price
+                current_pos["unrealized_pnl"] = 0.0 # 刚开的新仓位，未实现盈亏为0
+                current_pos["last_known_price"] = fill_price
         
         app_logger.info(f"DEBUG PORTFOLIO (on_fill before log): Logging with direction_multiplier = {direction_multiplier}, fill_qty = {fill_qty} for OrderID: {fill_event.order_id}")
-        app_logger.info(f"成交处理完毕: {symbol}, 数量: {direction_multiplier * fill_qty} @ {fill_price:.2f}. 新现金: {self.current_cash:.2f}")
-        app_logger.info(f"当前 {symbol} 持仓: {self.positions.get(symbol)}")
-        app_logger.info(f"DEBUG PORTFOLIO (on_fill exit): self.positions AFTER update: {self.positions}") # DEBUG
+        app_logger.info(f"成交处理完毕: {symbol}, 数量: {fill_qty} @ {fill_price:.2f}. 新现金: {self.current_cash:.2f}")
+        app_logger.info(f"当前 {symbol} 持仓: {self.positions[symbol]}")
+        app_logger.info(f"DEBUG PORTFOLIO (on_fill exit): self.positions AFTER update: {self.positions}")
+        
+        # 记录投资组合快照
+        self._record_portfolio_snapshot(fill_event.timestamp)
 
     def on_market(self, market_event: MarketEvent) -> None:
         """
-        根据新的市场数据更新当前持仓的市场价值。
-        计算未实现盈亏。
+        根据市场事件更新持仓市值和未实现盈亏。
         """
         symbol = market_event.symbol
-        if symbol in self.positions and self.positions[symbol]["quantity"] != 0:
-            pos = self.positions[symbol]
-            qty = pos["quantity"]
-            avg_cost = pos["avg_cost_price"]
-            current_price = market_event.close_price # 使用收盘价计算市值
-
-            pos["market_value"] = qty * current_price
-            pos["unrealized_pnl"] = (current_price - avg_cost) * qty
+        close_price = market_event.close_price
+        
+        if symbol in self.positions:
+            position = self.positions[symbol]
+            quantity = position["quantity"]
+            avg_cost = position["avg_cost_price"]
             
-            # 更新总的未实现盈亏
-            self.unrealized_pnl = sum(p.get("unrealized_pnl", 0.0) for p in self.positions.values() if p.get("quantity", 0) !=0)
-            # app_logger.debug(f"市价更新 ({symbol}): 价格={current_price:.2f}, 市值={pos['market_value']:.2f}, 未实现P&L={pos['unrealized_pnl']:.2f}")
-        # else: # 如果没有该合约持仓，或者数量为0，则不需要更新
-            # pass
+            # 更新市值和未实现盈亏
+            position["market_value"] = quantity * close_price
+            if quantity > 0:  # 多头
+                position["unrealized_pnl"] = (close_price - avg_cost) * quantity
+            elif quantity < 0:  # 空头
+                position["unrealized_pnl"] = (avg_cost - close_price) * abs(quantity)
+            
+            position["last_known_price"] = close_price
+            
+            # 更新投资组合未实现盈亏 (总计所有持仓)
+            self.unrealized_pnl = sum(pos.get("unrealized_pnl", 0.0) for pos in self.positions.values())
+            
+            # 记录投资组合快照
+            self._record_portfolio_snapshot(market_event.timestamp)
 
     def get_current_positions(self) -> Dict[str, PositionData]:
-        """返回当前持仓的字典 (合约代码 -> 持仓数据)。"""
-        # 返回一个副本以防止外部修改
-        return {s: p.copy() for s, p in self.positions.items() if p.get("quantity", 0) != 0} 
+        """获取当前持仓状态"""
+        return self.positions
 
     def get_current_holdings_value(self, symbol: Optional[str] = None) -> float:
         """
-        返回当前持仓的总市值。
-        如果 symbol is provided, returns value for that symbol only.
-        If no symbol and no positions, returns 0.
+        获取当前持仓市值。
+        如果提供symbol，则返回该symbol的市值；否则返回所有持仓的总市值。
         """
         if symbol:
-            if symbol in self.positions and self.positions[symbol].get("quantity",0) != 0:
-                return self.positions[symbol].get("market_value", 0.0)
-            return 0.0
+            return self.positions.get(symbol, {}).get("market_value", 0.0)
         else:
-            total_value = 0.0
-            for pos_data in self.positions.values():
-                if pos_data.get("quantity",0) != 0:
-                    total_value += pos_data.get("market_value", 0.0)
-            return total_value
+            return sum(position.get("market_value", 0.0) for position in self.positions.values())
 
     def get_portfolio_snapshot(self, current_market_prices: Optional[Dict[str, float]] = None) -> PortfolioSnapshot:
         """
-        返回投资组合当前状态的快照 (权益、现金等)。
+        获取当前投资组合状态的快照。
+        
+        参数:
+            current_market_prices: 可选的当前市场价格字典 {symbol: price}，用于更新市值计算
+            
+        返回:
+            包含投资组合状态的字典
         """
-        # 如果提供了实时价格，则用实时价格更新一次所有持仓的市值和未实现盈亏
-        if current_market_prices:
-            for sym, price in current_market_prices.items():
-                 # 创建一个临时的MarketEvent来调用update_on_market_data
-                 # 注意：这可能会重复记录日志，需要考虑是否直接计算
-                self.on_market(MarketEvent(symbol=sym, timestamp=datetime.utcnow(), # 时间戳可能需要同步
-                                                       open_price=price, high_price=price, low_price=price, 
-                                                       close_price=price, volume=0))
-
-        total_equity = self._calculate_current_total_equity()
+        # 计算持仓总价值
+        holdings_value = 0.0
+        for symbol, position in self.positions.items():
+            price = current_market_prices.get(symbol, position.get('last_known_price', 0.0)) if current_market_prices else position.get('market_value', 0.0) / position.get('quantity', 1.0) if position.get('quantity', 0.0) != 0 else 0.0
+            qty = position.get('quantity', 0.0)
+            holdings_value += qty * price
+            
+        # 更新未实现盈亏总额
+        unrealized_pnl = sum(pos.get('unrealized_pnl', 0.0) for pos in self.positions.values())
+        
+        # 计算总权益
+        total_equity = self.current_cash + holdings_value
+        
+        # 返回快照
         return {
-            "timestamp": datetime.utcnow(),
-            "initial_capital": self.initial_capital,
-            "current_cash": self.current_cash,
-            "total_equity": total_equity, # 现金 + 总持仓市值
-            "holdings_value": self.get_current_holdings_value(),
-            "positions": self.get_current_positions(),
-            "realized_pnl": self.realized_pnl,
-            "unrealized_pnl": self.unrealized_pnl,
-            "total_pnl": self.realized_pnl + self.unrealized_pnl,
+            "timestamp": datetime.now(timezone.utc),
+            "total_equity": total_equity,
+            "cash": self.current_cash,
+            "holdings_value": holdings_value,
+            "positions": {symbol: dict(pos) for symbol, pos in self.positions.items()},
+            "total_unrealized_pnl": unrealized_pnl,
+            "total_realized_pnl": self.realized_pnl,
             "total_commission": self.total_commission
         }
+    
+    def get_portfolio_history(self) -> pd.DataFrame:
+        """
+        获取投资组合历史记录，返回一个DataFrame，包含投资组合随时间的状态变化
+        
+        返回:
+            pd.DataFrame: 包含以下列的DataFrame:
+                - timestamp: 记录时间
+                - total_equity: 总权益
+                - cash: 现金
+                - holdings_value: 持仓市值
+                - realized_pnl: 已实现盈亏
+                - unrealized_pnl: 未实现盈亏
+                - positions_count: 持仓数量
+        """
+        if not self.portfolio_history:
+            return pd.DataFrame()
+        
+        return pd.DataFrame(self.portfolio_history)
 
     def get_available_cash(self) -> float:
-        """返回当前可用于交易的现金。"""
-        # TODO: 未来可以考虑保证金占用等因素
+        """获取当前可用现金"""
         return self.current_cash
 
     def print_summary(self) -> None:

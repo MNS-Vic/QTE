@@ -1,10 +1,11 @@
 """
-核心事件系统单元测试
+核心事件系统单元测试（重新实现）
 测试Events基础类、市场事件、信号事件、订单事件和成交事件
 """
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
+import inspect
 
 # 导入要测试的模块
 from qte.core.events import (
@@ -12,24 +13,27 @@ from qte.core.events import (
     OrderEvent, FillEvent, OrderDirection, OrderType
 )
 
-class TestEvent:
+class TestEventBase:
     """测试基础事件类"""
     
     def setup_method(self):
         """测试前设置"""
-        self.timestamp = datetime(2023, 1, 1, 10, 0, 0)
+        self.timestamp = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
     
-    def test_event_initialization(self):
-        """测试事件初始化"""
+    def test_event_initialization_with_timestamp(self):
+        """测试提供时间戳初始化事件"""
         event = Event(event_type="TEST", timestamp=self.timestamp)
         
         assert event.event_type == "TEST"
         assert event.timestamp == self.timestamp
+    
+    def test_event_initialization_without_timestamp(self):
+        """测试不提供时间戳初始化事件"""
+        event = Event(event_type="TEST")
         
-        # 测试不提供timestamp时使用当前时间
-        event_no_ts = Event(event_type="TEST")
-        assert event_no_ts.timestamp is not None
-        assert isinstance(event_no_ts.timestamp, datetime)
+        assert event.event_type == "TEST"
+        assert isinstance(event.timestamp, datetime)
+        assert event.timestamp.tzinfo is not None  # 应该有时区信息
     
     def test_event_string_representation(self):
         """测试事件的字符串表示"""
@@ -38,6 +42,31 @@ class TestEvent:
         
         assert "TEST" in string_repr
         assert str(self.timestamp) in string_repr
+    
+    def test_event_additional_attributes(self):
+        """测试事件的额外属性"""
+        event = Event(event_type="TEST", timestamp=self.timestamp, extra_field="value")
+        
+        assert hasattr(event, "extra_field")
+        assert event.extra_field == "value"
+
+class TestEventType:
+    """测试事件类型枚举"""
+    
+    def test_event_type_values(self):
+        """测试事件类型枚举值"""
+        assert EventType.MARKET.value == "MARKET"
+        assert EventType.SIGNAL.value == "SIGNAL"
+        assert EventType.ORDER.value == "ORDER"
+        assert EventType.FILL.value == "FILL"
+    
+    def test_event_type_comparison(self):
+        """测试事件类型比较"""
+        assert EventType.MARKET != EventType.SIGNAL
+        assert EventType.ORDER != EventType.FILL
+        
+        # 与字符串值比较
+        assert EventType.MARKET.value == "MARKET"
 
 class TestMarketEvent:
     """测试市场事件类"""
@@ -45,7 +74,7 @@ class TestMarketEvent:
     def setup_method(self):
         """测试前设置"""
         self.symbol = "000001.XSHE"
-        self.timestamp = datetime(2023, 1, 1, 10, 0, 0)
+        self.timestamp = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
         self.open_price = 10.0
         self.high_price = 11.0
         self.low_price = 9.5
@@ -92,6 +121,23 @@ class TestMarketEvent:
         assert market_event.additional_data == additional_data
         assert market_event.additional_data["vwap"] == 10.2
         assert market_event.additional_data["turnover"] == 50000
+    
+    def test_market_event_string_representation(self):
+        """测试市场事件的字符串表示"""
+        market_event = MarketEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            open_price=self.open_price,
+            high_price=self.high_price,
+            low_price=self.low_price,
+            close_price=self.close_price,
+            volume=self.volume
+        )
+        
+        string_repr = str(market_event)
+        assert "MARKET" in string_repr
+        assert self.symbol in string_repr
+        assert str(self.close_price) in string_repr
 
 class TestSignalEvent:
     """测试信号事件类"""
@@ -99,7 +145,7 @@ class TestSignalEvent:
     def setup_method(self):
         """测试前设置"""
         self.symbol = "000001.XSHE"
-        self.timestamp = datetime(2023, 1, 1, 10, 0, 0)
+        self.timestamp = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
     
     def test_signal_event_long(self):
         """测试多头信号事件"""
@@ -150,6 +196,38 @@ class TestSignalEvent:
         assert signal_event.signal_type == "EXIT"
         assert signal_event.direction == 0
         assert signal_event.strength == 1.0
+    
+    def test_signal_event_with_additional_data(self):
+        """测试带有额外数据的信号事件"""
+        additional_data = {"indicator_value": 1.5, "confidence": 0.9}
+        
+        signal_event = SignalEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            signal_type="LONG",
+            direction=1,
+            strength=0.8,
+            additional_data=additional_data
+        )
+        
+        assert signal_event.additional_data == additional_data
+        assert signal_event.additional_data["indicator_value"] == 1.5
+        assert signal_event.additional_data["confidence"] == 0.9
+    
+    def test_signal_event_string_representation(self):
+        """测试信号事件的字符串表示"""
+        signal_event = SignalEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            signal_type="LONG",
+            direction=1,
+            strength=0.8
+        )
+        
+        string_repr = str(signal_event)
+        assert "SIGNAL" in string_repr
+        assert self.symbol in string_repr
+        assert "LONG" in string_repr
 
 class TestOrderEvent:
     """测试订单事件类"""
@@ -157,10 +235,22 @@ class TestOrderEvent:
     def setup_method(self):
         """测试前设置"""
         self.symbol = "000001.XSHE"
-        self.timestamp = datetime(2023, 1, 1, 10, 0, 0)
+        self.timestamp = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
         self.quantity = 100
         self.price = 10.5
         self.order_id = "test_order_1"
+    
+    def test_order_direction_enum(self):
+        """测试订单方向枚举"""
+        assert OrderDirection.BUY.value == 1
+        assert OrderDirection.SELL.value == -1
+    
+    def test_order_type_enum(self):
+        """测试订单类型枚举"""
+        assert OrderType.MARKET.value == "MKT"
+        assert OrderType.LIMIT.value == "LMT"
+        assert OrderType.STOP.value == "STOP"
+        assert OrderType.STOP_LIMIT.value == "STOP_LMT"
     
     def test_order_event_with_enum_direction(self):
         """测试使用枚举方向的订单事件"""
@@ -257,6 +347,40 @@ class TestOrderEvent:
         assert order.price is None
         assert order.order_id is None
         assert order.additional_data == {}
+    
+    def test_order_event_with_additional_data(self):
+        """测试带有额外数据的订单事件"""
+        additional_data = {"priority": "high", "strategy_id": "trend_001"}
+        
+        order = OrderEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            order_type=OrderType.MARKET,
+            quantity=self.quantity,
+            direction=1,
+            additional_data=additional_data
+        )
+        
+        assert order.additional_data == additional_data
+        assert order.additional_data["priority"] == "high"
+        assert order.additional_data["strategy_id"] == "trend_001"
+    
+    def test_order_event_string_representation(self):
+        """测试订单事件的字符串表示"""
+        order = OrderEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            order_type=OrderType.MARKET,
+            quantity=self.quantity,
+            direction=1,
+            price=self.price
+        )
+        
+        string_repr = str(order)
+        assert "ORDER" in string_repr
+        assert self.symbol in string_repr
+        assert "MKT" in string_repr
+        assert str(self.quantity) in string_repr
 
 class TestFillEvent:
     """测试成交事件类"""
@@ -264,7 +388,7 @@ class TestFillEvent:
     def setup_method(self):
         """测试前设置"""
         self.symbol = "000001.XSHE"
-        self.timestamp = datetime(2023, 1, 1, 10, 0, 0)
+        self.timestamp = datetime(2023, 1, 1, 10, 0, 0, tzinfo=timezone.utc)
         self.quantity = 100
         self.fill_price = 10.5
         self.commission = 5.0
@@ -369,6 +493,40 @@ class TestFillEvent:
         assert fill.exchange is None
         assert fill.slippage is None
         assert fill.additional_data == {}
+    
+    def test_fill_event_with_additional_data(self):
+        """测试带有额外数据的成交事件"""
+        additional_data = {"broker_id": "broker_001", "execution_time": 0.05}
+        
+        fill = FillEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            quantity=self.quantity,
+            direction=1,
+            fill_price=self.fill_price,
+            additional_data=additional_data
+        )
+        
+        assert fill.additional_data == additional_data
+        assert fill.additional_data["broker_id"] == "broker_001"
+        assert fill.additional_data["execution_time"] == 0.05
+    
+    def test_fill_event_string_representation(self):
+        """测试成交事件的字符串表示"""
+        fill = FillEvent(
+            symbol=self.symbol,
+            timestamp=self.timestamp,
+            quantity=self.quantity,
+            direction=1,
+            fill_price=self.fill_price,
+            commission=self.commission
+        )
+        
+        string_repr = str(fill)
+        assert "FILL" in string_repr
+        assert self.symbol in string_repr
+        assert str(self.quantity) in string_repr
+        assert str(self.fill_price) in string_repr
 
 
 if __name__ == "__main__":
