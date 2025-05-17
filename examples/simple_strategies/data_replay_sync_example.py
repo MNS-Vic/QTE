@@ -19,7 +19,8 @@ logging.basicConfig(
 from qte.data.data_replay import (
     DataFrameReplayController, 
     MultiSourceReplayController,
-    ReplayMode
+    ReplayMode,
+    ReplayStatus
 )
 
 def dataframe_sync_example():
@@ -177,7 +178,7 @@ def sync_vs_async_example(df):
     import time
     max_wait = 3  # 最多等待3秒
     for _ in range(30):
-        if controller.get_status().is_completed:
+        if controller.get_status() == ReplayStatus.COMPLETED:
             break
         time.sleep(0.1)
     
