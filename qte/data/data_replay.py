@@ -739,51 +739,51 @@ class BaseDataReplayController(DataReplayInterface):
         return self._mode
 
 class DataFrameReplayController(BaseDataReplayController):
-    """
-    基于DataFrame的数据重放控制器
-    
-    支持回放pandas DataFrame格式的数据
-    """
+    """DataFrame数据重放控制器，将Pandas DataFrame作为数据源"""
     
     def __init__(self, dataframe: pd.DataFrame, timestamp_column=None, 
-                 mode: ReplayMode = ReplayMode.BACKTEST, speed_factor: float = 1.0):
+                 mode: ReplayMode = ReplayMode.BACKTEST, speed_factor: float = 1.0,
+                 memory_optimized: bool = False):
         """
-        初始化基于DataFrame的数据重放控制器
+        初始化DataFrame数据重放控制器
         
         Parameters
         ----------
         dataframe : pd.DataFrame
-            数据源DataFrame
+            要重放的DataFrame数据
         timestamp_column : str, optional
-            时间戳列名，如果为None则使用索引作为时间戳, by default None
+            时间戳列名，如果提供，将用于控制重放速度，默认为None（使用行索引）
         mode : ReplayMode, optional
-            重放模式, by default ReplayMode.BACKTEST
+            重放模式，默认为回测模式
         speed_factor : float, optional
-            速度因子, by default 1.0
+            速度因子，用于控制重放速度，默认为1.0
+        memory_optimized : bool, optional
+            是否启用内存优化模式，对于大型数据集有用，但可能略微降低性能，默认为False
         """
         super().__init__(data_source=dataframe, mode=mode, speed_factor=speed_factor)
         
-        # 确保传入的dataframe是有效的
-        if dataframe is None or len(dataframe) == 0:
-            logger.warning("初始化DataFrameReplayController时传入了空DataFrame")
-            dataframe = pd.DataFrame()  # 创建空DataFrame避免后续出错
+        self._dataframe = dataframe
+        self._timestamp_col = timestamp_column
+        self._memory_optimized = memory_optimized
         
-        self.data = dataframe  # 为测试提供对数据的直接访问
-        self._df = dataframe
-        self._timestamp_column = timestamp_column
-        self.current_index = -1  # 为测试提供当前索引
-        self._sync_position = 0  # 专门用于同步API的位置计数器
+        # 检查是否是大型数据集
+        if len(dataframe) > 100000:
+            logger.warning(f"检测到大型数据集 ({len(dataframe)}行)，处理可能会较慢，建议考虑使用memory_optimized=True选项")
+            
+        if memory_optimized:
+            logger.info("已启用内存优化模式，这将减少内存占用但可能略微影响性能")
+            # 内存优化模式下，使用迭代器而不是直接全部加载
+            self._use_iterative_access = True
+        else:
+            self._use_iterative_access = False
         
-        # 如果指定了时间戳列，确保它是datetime类型
-        if timestamp_column is not None and timestamp_column in self._df.columns:
-            if not pd.api.types.is_datetime64_dtype(self._df[timestamp_column]):
-                try:
-                    self._df[timestamp_column] = pd.to_datetime(self._df[timestamp_column])
-                except Exception as e:
-                    logger.error(f"无法将列 '{timestamp_column}' 转换为日期时间格式: {str(e)}")
-        
-        # 存储前一个时间戳，用于计算延迟
-        self._previous_timestamp = None
+        # 如果提供了时间戳列，检查列是否存在
+        if timestamp_column and timestamp_column not in dataframe.columns:
+            logger.warning(f"指定的时间戳列 '{timestamp_column}' 不存在于DataFrame中，将使用索引")
+            self._timestamp_col = None
+            
+        # 为同步API准备
+        self._sync_position = 0
         
         logger.debug(f"DataFrame控制器初始化完成，数据长度: {len(dataframe)}")
     
@@ -798,24 +798,24 @@ class DataFrameReplayController(BaseDataReplayController):
         """
         try:
             # 锁已在调用方法中获取，不需要在这里重复获取
-            if not hasattr(self, '_df') or self._df is None or len(self._df) == 0:
+            if not hasattr(self, '_dataframe') or self._dataframe is None or len(self._dataframe) == 0:
                 logger.warning("DataFrame为空，无法获取数据点")
                 return None
                 
-            if self._current_position >= len(self._df):
-                logger.debug(f"已超出DataFrame范围: 位置={self._current_position}, 数据长度={len(self._df)}")
+            if self._current_position >= len(self._dataframe):
+                logger.debug(f"已超出DataFrame范围: 位置={self._current_position}, 数据长度={len(self._dataframe)}")
                 return None
             
             # 获取数据行
             self.current_index = self._current_position
             logger.debug(f"获取DataFrame第{self.current_index}行数据")
-            row = self._df.iloc[self._current_position]
+            row = self._dataframe.iloc[self._current_position]
             
             # 记录时间戳
-            if self._timestamp_column:
-                self.current_timestamp = row[self._timestamp_column]
-            elif isinstance(self._df.index, pd.DatetimeIndex):
-                self.current_timestamp = self._df.index[self._current_position]
+            if self._timestamp_col:
+                self.current_timestamp = row[self._timestamp_col]
+            elif isinstance(self._dataframe.index, pd.DatetimeIndex):
+                self.current_timestamp = self._dataframe.index[self._current_position]
             else:
                 self.current_timestamp = None
             
@@ -850,7 +850,7 @@ class DataFrameReplayController(BaseDataReplayController):
                     
                 # 检查是否已到达结尾
                 with self._lock:
-                    if self._current_position >= len(self._df):
+                    if self._current_position >= len(self._dataframe):
                         logger.debug(f"已到达DataFrame末尾，设置状态为COMPLETED")
                         self._status = ReplayStatus.COMPLETED
                         already_processed_all = True
@@ -929,10 +929,10 @@ class DataFrameReplayController(BaseDataReplayController):
             return 0
         
         # 获取当前时间戳
-        if self._timestamp_column and isinstance(data_point, pd.Series) and self._timestamp_column in data_point:
-            current_timestamp = data_point[self._timestamp_column]
-        elif isinstance(self._df.index, pd.DatetimeIndex):
-            current_timestamp = self._df.index[self._current_position - 1]
+        if self._timestamp_col and isinstance(data_point, pd.Series) and self._timestamp_col in data_point:
+            current_timestamp = data_point[self._timestamp_col]
+        elif isinstance(self._dataframe.index, pd.DatetimeIndex):
+            current_timestamp = self._dataframe.index[self._current_position - 1]
         else:
             return 0
         
@@ -971,28 +971,28 @@ class DataFrameReplayController(BaseDataReplayController):
         """
         try:
             # 检查DataFrame是否有效
-            if self._df is None or len(self._df) == 0:
+            if self._dataframe is None or len(self._dataframe) == 0:
                 # 更新状态
                 with self._lock:
                     self._status = ReplayStatus.COMPLETED
                 return None
                 
             # 检查是否到达末尾
-            if self._sync_position >= len(self._df):
+            if self._sync_position >= len(self._dataframe):
                 # 更新状态
                 with self._lock:
                     self._status = ReplayStatus.COMPLETED
                 return None
                 
             # 获取当前行
-            row = self._df.iloc[self._sync_position]
+            row = self._dataframe.iloc[self._sync_position]
             
             # 更新时间戳信息
-            if self._timestamp_column and self._timestamp_column in row:
-                timestamp = row[self._timestamp_column]
+            if self._timestamp_col and self._timestamp_col in row:
+                timestamp = row[self._timestamp_col]
                 self.current_timestamp = timestamp
-            elif isinstance(self._df.index, pd.DatetimeIndex):
-                timestamp = self._df.index[self._sync_position]
+            elif isinstance(self._dataframe.index, pd.DatetimeIndex):
+                timestamp = self._dataframe.index[self._sync_position]
                 self.current_timestamp = timestamp
                 
             # 移动指针
@@ -1002,7 +1002,7 @@ class DataFrameReplayController(BaseDataReplayController):
             self._notify_callbacks(row)
             
             # 如果已经处理完所有数据，更新状态
-            if self._sync_position >= len(self._df):
+            if self._sync_position >= len(self._dataframe):
                 with self._lock:
                     self._status = ReplayStatus.COMPLETED
                     
@@ -1025,19 +1025,18 @@ class DataFrameReplayController(BaseDataReplayController):
         """
         try:
             # 重置状态
-            with self._lock:
-                self._sync_position = 0
-                
+            self._sync_position = 0
+            
             # 检查DataFrame是否有效
-            if self._df is None or len(self._df) == 0:
+            if self._dataframe is None or len(self._dataframe) == 0:
                 with self._lock:
                     self._status = ReplayStatus.COMPLETED
                 return []
                 
             # 直接处理所有数据
             results = []
-            for i in range(len(self._df)):
-                row = self._df.iloc[i]
+            for i in range(len(self._dataframe)):
+                row = self._dataframe.iloc[i]
                 results.append(row)
                 
                 # 触发回调
@@ -1045,7 +1044,7 @@ class DataFrameReplayController(BaseDataReplayController):
                 
             # 设置状态为完成
             with self._lock:
-                self._sync_position = len(self._df)
+                self._sync_position = len(self._dataframe)
                 self._status = ReplayStatus.COMPLETED
                 
             return results
@@ -1057,11 +1056,7 @@ class DataFrameReplayController(BaseDataReplayController):
             return []
 
 class MultiSourceReplayController(BaseDataReplayController):
-    """
-    多数据源重放控制器
-    
-    支持同时回放多个数据源的数据，并按时间对齐
-    """
+    """多数据源重放控制器，能够合并多个数据源进行重放"""
     
     def __init__(self, data_sources: Dict[str, Any], timestamp_extractors: Dict[str, Callable] = None,
                  mode: ReplayMode = ReplayMode.BACKTEST, speed_factor: float = 1.0):
@@ -1071,33 +1066,36 @@ class MultiSourceReplayController(BaseDataReplayController):
         Parameters
         ----------
         data_sources : Dict[str, Any]
-            数据源字典，键为数据源名称，值为数据源对象
+            数据源映射，key为数据源名称，value为实际数据源（如DataFrame）
         timestamp_extractors : Dict[str, Callable], optional
-            时间戳提取函数字典，键为数据源名称，值为从数据点提取时间戳的函数, by default None
+            时间戳提取函数映射，默认为None(使用内部逻辑)
         mode : ReplayMode, optional
-            重放模式, by default ReplayMode.BACKTEST
+            重放模式，默认为回测模式
         speed_factor : float, optional
-            速度因子, by default 1.0
+            速度因子，用于控制重放速度，默认为1.0
         """
-        super().__init__(data_source=data_sources, mode=mode, speed_factor=speed_factor)
+        super().__init__(data_sources, mode=mode, speed_factor=speed_factor)
         
         self._data_sources = data_sources
         self._timestamp_extractors = timestamp_extractors or {}
+        self._iterators = {}  # 数据源迭代器
+        self._next_data = {}  # 每个数据源的下一个数据点
         
-        # 初始化数据源迭代器和当前数据点
-        self.controllers = {}  # 为测试提供对子控制器的访问
-        self._iterators = {}
-        self._current_data_points = {}
-        self._previous_timestamp = None
+        # 为同步API准备
+        self._sync_iterators = {}  # 专用于同步API的迭代器
+        self._sync_position = 0    # 同步API的当前位置
+        self._has_initialized_sync = False  # 标记同步迭代器是否已初始化
         
-        # 为同步API专门添加的字段
-        self._sync_iterators = {}
-        self._sync_current_points = {}
-        self._has_initialized_sync = False
+        # 检查大型数据源
+        large_sources = []
+        for name, source in data_sources.items():
+            if isinstance(source, pd.DataFrame) and len(source) > 100000:
+                large_sources.append(name)
         
-        # 初始化各数据源的迭代器
+        if large_sources:
+            logger.warning(f"检测到 {len(large_sources)} 个大型数据源: {', '.join(large_sources)}, 处理可能会较慢")
+        
         self._initialize_iterators()
-        
         logger.debug(f"MultiSourceReplayController初始化完成，数据源数量: {len(data_sources)}")
     
     def _initialize_iterators(self):
@@ -1105,7 +1103,7 @@ class MultiSourceReplayController(BaseDataReplayController):
         logger.debug("初始化多数据源迭代器")
         # 清空当前已有的迭代器和数据点
         self._iterators.clear()
-        self._current_data_points.clear()
+        self._next_data.clear()
         
         for name, source in self._data_sources.items():
             if isinstance(source, pd.DataFrame):
@@ -1141,7 +1139,9 @@ class MultiSourceReplayController(BaseDataReplayController):
         """为同步API初始化所有数据源的迭代器"""
         # 清空当前已有的同步迭代器和数据点
         self._sync_iterators.clear()
-        self._sync_current_points.clear()
+        # 初始化需要的变量
+        self._sync_position = 0
+        self._has_initialized_sync = False
         
         for name, source in self._data_sources.items():
             if isinstance(source, pd.DataFrame):
@@ -1224,12 +1224,12 @@ class MultiSourceReplayController(BaseDataReplayController):
                 # 添加数据源名称和索引
                 data['_source'] = source_name
                 
-                self._current_data_points[source_name] = data
+                self._next_data[source_name] = data
                 return True
         except StopIteration:
             # 该数据源没有更多数据
-            if source_name in self._current_data_points:
-                del self._current_data_points[source_name]
+            if source_name in self._next_data:
+                del self._next_data[source_name]
             logger.debug(f"数据源 '{source_name}' 没有更多数据")
             return False
         except Exception as e:
@@ -1287,7 +1287,7 @@ class MultiSourceReplayController(BaseDataReplayController):
         # 锁已在调用方法中获取，不需要在这里重复获取
         
         # 如果没有活跃的数据源，则结束
-        if not self._current_data_points:
+        if not self._next_data:
             logger.debug("没有活跃的数据源，返回None")
             return None
         
@@ -1295,7 +1295,7 @@ class MultiSourceReplayController(BaseDataReplayController):
         earliest_source = None
         earliest_timestamp = None
         
-        for source_name, data_point in self._current_data_points.items():
+        for source_name, data_point in self._next_data.items():
             timestamp = self._get_timestamp(source_name, data_point)
             if timestamp is None:
                 continue
@@ -1306,13 +1306,13 @@ class MultiSourceReplayController(BaseDataReplayController):
         
         # 如果找不到有效的时间戳，则使用第一个数据点
         if earliest_source is None:
-            earliest_source = next(iter(self._current_data_points.keys()))
+            earliest_source = next(iter(self._next_data.keys()))
             logger.debug(f"找不到有效时间戳，使用第一个数据源: {earliest_source}")
         else:
             logger.debug(f"找到最早的数据点，来源: {earliest_source}，时间戳: {earliest_timestamp}")
         
         # 获取并移除最早的数据点
-        result = self._current_data_points.pop(earliest_source, None)
+        result = self._next_data.pop(earliest_source, None)
         
         # 记录当前时间戳
         self.current_timestamp = earliest_timestamp
@@ -1336,12 +1336,12 @@ class MultiSourceReplayController(BaseDataReplayController):
         
         # 重置异步处理相关状态
         self._iterators.clear()
-        self._current_data_points.clear()
+        self._next_data.clear()
         self._previous_timestamp = None
         
         # 重置同步API相关状态
         self._sync_iterators.clear()
-        self._sync_current_points.clear()
+        self._sync_position = 0
         self._has_initialized_sync = False
         if hasattr(self, '_all_sync_data'):
             del self._all_sync_data
@@ -1382,7 +1382,7 @@ class MultiSourceReplayController(BaseDataReplayController):
                 # 检查是否还有活跃数据源
                 has_active_sources = False
                 with self._lock:
-                    has_active_sources = bool(self._current_data_points)
+                    has_active_sources = bool(self._next_data)
                     
                 if not has_active_sources:
                     logger.debug("没有活跃数据源，设置状态为COMPLETED")
@@ -1469,9 +1469,9 @@ class MultiSourceReplayController(BaseDataReplayController):
         """
         try:
             # 确保同步迭代器已初始化
-            if not self._has_initialized_sync:
+            if not hasattr(self, '_has_initialized_sync') or not self._has_initialized_sync:
+                logger.debug("同步API: 初始化多数据源同步迭代器")
                 self._initialize_sync_iterators()
-                self._has_initialized_sync = True
             
             # 如果没有有效的数据源，返回None
             if not self._sync_iterators:
@@ -1521,6 +1521,9 @@ class MultiSourceReplayController(BaseDataReplayController):
                             del data['_extracted_timestamp']
             
             # 检查是否已处理完所有数据
+            if not hasattr(self, '_sync_position'):
+                self._sync_position = 0
+                
             if self._sync_position >= len(self._all_sync_data):
                 with self._lock:
                     self._status = ReplayStatus.COMPLETED
@@ -1567,9 +1570,9 @@ class MultiSourceReplayController(BaseDataReplayController):
             self._sync_position = 0
             
             # 确保同步迭代器已初始化
-            if not self._has_initialized_sync:
+            if not hasattr(self, '_has_initialized_sync') or not self._has_initialized_sync:
+                logger.debug("同步API (process_all): 初始化多数据源同步迭代器")
                 self._initialize_sync_iterators()
-                self._has_initialized_sync = True
             
             # 合并所有数据源的数据
             all_data = []
