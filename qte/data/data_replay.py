@@ -205,66 +205,162 @@ class DataReplayInterface(abc.ABC):
             是否成功注销
         """
         pass
+    
+    @abc.abstractmethod
+    def process_all_sync(self) -> List[Any]:
+        """
+        处理所有数据并返回结果（同步API）
+        
+        Returns
+        -------
+        List[Any]
+            包含所有数据点的列表
+        """
+        pass
 
 class BaseDataReplayController(DataReplayInterface):
     """
     数据重放控制器基类
     
-    实现了基本的重放控制功能
+    实现了大部分通用逻辑，子类只需实现特定的数据源操作
     """
     
     def __init__(self, data_source=None, mode: ReplayMode = ReplayMode.BACKTEST, 
                  speed_factor: float = 1.0, batch_callbacks: bool = False):
         """
-        初始化数据重放控制器
+        初始化基础数据重放控制器
         
         Parameters
         ----------
         data_source : Any, optional
-            数据源，可以是DataFrame或其他数据源，由子类具体实现解析, by default None
+            数据源，由子类定义具体类型，默认为None
         mode : ReplayMode, optional
-            重放模式, by default ReplayMode.BACKTEST
+            重放模式，默认为回测模式
         speed_factor : float, optional
-            速度因子, by default 1.0
+            速度因子，用于控制重放速度，默认为1.0
         batch_callbacks : bool, optional
-            是否批量处理回调，可提高性能但增加延迟, by default False
+            是否批量处理回调，可提高性能但增加延迟，默认为False
         """
-        self._data_source = data_source
+        # 状态和锁
+        self._status = ReplayStatus.INITIALIZED
         self._mode = mode
         self._speed_factor = speed_factor
-        self._status = ReplayStatus.INITIALIZED
+        self._lock = threading.RLock()  # 使用可重入锁
+        self._event = threading.Event()
+        self._event.set()  # 初始状态为可执行
         
-        # 位置计数器，表示当前处理到的位置
-        self._current_position = 0
-        
-        # 回调函数相关
+        # 回调处理相关
         self._callbacks = {}
         self._next_callback_id = 1
-        self._callback_lock = threading.Lock()
+        self._callback_lock = threading.RLock()  # 回调专用锁
         self._batch_callbacks = batch_callbacks
-        self._callback_thread = None  # 先定义，然后再在下面启动
-        self._callback_queue = queue.Queue() if batch_callbacks else None
-        self._callback_event = threading.Event() if batch_callbacks else None
+        
+        # 回调线程与队列
+        self._callback_queue = queue.Queue()
+        self._callback_thread = None
+        self._callback_event = threading.Event()
+        self._callback_stop_flag = threading.Event()  # 添加线程退出标志
+        
+        # 数据源与位置跟踪
+        self._data_source = data_source
+        self._current_position = 0
+        self._last_timestamp = None
         
         # 线程控制
-        self._lock = threading.Lock()
-        self._event = threading.Event()
-        self._event.set()  # 默认设置为已触发，表示可以开始执行
         self._thread = None
+        self.reset_called = False  # 用于跟踪是否已调用过reset
         
-        # 用于控制重放速度
-        self._last_timestamp = None
-        self._time_factor = speed_factor
+        # 向后兼容 - 添加current_timestamp和current_index属性
+        self.current_timestamp = None
+        self.current_index = 0
         
-        # 重置状态
-        self.reset()
+        # 记录初始化完成
+        logger.debug(f"初始化 {self.__class__.__name__} 完成: mode={mode}, speed={speed_factor}")
         
         # 如果启用了批量回调，启动回调处理线程
         if batch_callbacks:
             self._callback_thread = self._start_callback_thread()
-            
-        logger.debug(f"BaseDataReplayController初始化完成: 模式={mode}, 速度因子={speed_factor}")
+    
+    def _map_status(self, status):
+        """将内部状态映射为对外一致的状态"""
+        if status == ReplayStatus.FINISHED:
+            return ReplayStatus.COMPLETED
+        return status
+
+    def get_status(self) -> ReplayStatus:
+        """
+        获取当前状态
         
+        Returns
+        -------
+        ReplayStatus
+            当前重放状态
+        """
+        with self._lock:
+            return self._map_status(self._status)
+            
+    def reset(self) -> bool:
+        """
+        重置重放控制器状态，允许从头开始重新运行。
+        子类应确保其数据迭代器也被重置。
+        """
+        logger.debug(f"进入reset方法: 当前状态={self._status}")
+        
+        # 如果正在运行，需要先停止
+        current_status = None
+        with self._lock:
+            current_status = self._status
+            
+        if current_status == ReplayStatus.RUNNING:
+            logger.warning("不能在运行时重置，请先停止重放。")
+            self.stop()  # 自动停止
+        
+        # 确保回调线程停止标志已设置
+        self._callback_stop_flag.set()
+        
+        # 重置状态和线程
+        with self._lock:
+            # 如果线程还在运行，确保状态标记为停止
+            if self._thread and self._thread.is_alive():
+                self._status = ReplayStatus.STOPPED
+                self._event.set()  # 确保线程不会阻塞
+                # 等待线程结束
+                self._thread.join(timeout=0.2)
+            
+            # 重置状态和位置
+            self._current_position = 0
+            self._status = ReplayStatus.INITIALIZED
+            self._event.set() # 确保事件被设置
+            logger.info(f"重置控制器 ({self.__class__.__name__})") 
+            self.reset_called = True
+            
+            # 重置回调队列
+            while not self._callback_queue.empty():
+                try:
+                    self._callback_queue.get_nowait()
+                except:
+                    pass
+            
+            # 调用子类的_reset方法
+            self._reset()
+        
+        # 确保线程已停止
+        if self._thread and self._thread.is_alive():
+            # 阻塞等待线程停止，但设置超时避免无限等待
+            self._thread.join(timeout=0.5)
+            self._thread = None
+        
+        # 重置回调线程状态
+        if self._callback_thread and self._callback_thread.is_alive():
+            # 等待回调线程停止
+            self._callback_thread.join(timeout=0.5)
+            self._callback_thread = None
+        
+        # 为下次启动准备，清除停止标志
+        self._callback_stop_flag.clear()
+        
+        return True
+
     def start(self) -> bool:
         """
         开始重放数据
@@ -367,23 +463,40 @@ class BaseDataReplayController(DataReplayInterface):
         Returns
         -------
         bool
-            是否成功停止
+            是否成功停止，如果已经处理完成或已停止则返回False
         """
+        logger.debug(f"进入stop方法: 当前状态={self._status}")
+        
+        # 获取当前状态
         with self._lock:
-            if self._status in [ReplayStatus.STOPPED, ReplayStatus.COMPLETED]:
-                logger.warning(f"重放已经处于停止状态: {self._status.name}")
+            current_status = self._status
+            
+            # 如果已经停止或已完成，则直接返回False
+            if current_status in [ReplayStatus.STOPPED, ReplayStatus.COMPLETED]:
+                logger.debug(f"状态已经是{current_status}，无需停止")
                 return False
             
-            prev_status = self._status
+            # 更新状态为停止
             self._status = ReplayStatus.STOPPED
-            self._event.set()  # 确保线程不被阻塞
+            self._event.set()  # 确保事件被设置，避免线程阻塞
             
-            # 如果之前是运行状态，等待线程结束
-            if prev_status == ReplayStatus.RUNNING and self._thread is not None:
-                self._thread.join(timeout=1.0)
-            
-            logger.info("重放已停止")
-            return True
+            # 设置回调停止标志
+            self._callback_stop_flag.set()
+        
+        # 等待线程结束
+        if self._thread and self._thread.is_alive():
+            # 给线程一点时间结束，但不要无限等待
+            self._thread.join(timeout=0.5)
+        
+        # 如果使用了回调线程，确保它也停止
+        if self._callback_thread and self._callback_thread.is_alive():
+            try:
+                self._callback_thread.join(timeout=0.5)
+            except:
+                pass
+        
+        logger.info(f"停止数据重放 ({self.__class__.__name__})")
+        return True
     
     def step(self) -> Optional[Any]:
         """
@@ -496,18 +609,6 @@ class BaseDataReplayController(DataReplayInterface):
             logger.info(f"重放模式已设置为: {mode.name}")
             return True
     
-    def get_status(self) -> ReplayStatus:
-        """
-        获取当前状态
-        
-        Returns
-        -------
-        ReplayStatus
-            当前重放状态
-        """
-        with self._lock:
-            return self._status
-    
     def register_callback(self, callback: Callable[[Any], None]) -> int:
         """
         注册回调函数，数据点推送时触发
@@ -553,57 +654,6 @@ class BaseDataReplayController(DataReplayInterface):
                 del self._callbacks[callback_id]
                 return True
             return False
-    
-    def reset(self) -> bool:
-        """
-        重置重放控制器状态，允许从头开始重新运行。
-        子类应确保其数据迭代器也被重置。
-        """
-        logger.debug(f"进入reset方法: 当前状态={self._status}")
-        
-        # 如果正在运行，需要先停止
-        current_status = None
-        with self._lock:
-            current_status = self._status
-            
-        if current_status == ReplayStatus.RUNNING:
-            logger.warning("不能在运行时重置，请先停止重放。")
-            self.stop()  # 自动停止
-            # 等待线程停止但不阻塞太长时间
-            if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=0.2)
-                
-        # 重置状态和线程
-        with self._lock:
-            # 如果线程还在运行，确保状态标记为停止
-            if self._thread and self._thread.is_alive():
-                self._status = ReplayStatus.STOPPED
-                self._event.set()  # 确保线程不会阻塞
-            
-            # 重置状态和位置
-            self._current_position = 0
-            self._status = ReplayStatus.INITIALIZED
-            self._event.set() # 确保事件被设置
-            logger.info(f"重置控制器 ({self.__class__.__name__})") 
-            self.reset_called = True
-            
-            # 调用子类的_reset方法
-            self._reset()
-            
-        # 确保线程已停止
-        if self._thread and self._thread.is_alive():
-            # 阻塞等待线程停止，但设置超时避免无限等待
-            self._thread.join(timeout=0.5)
-            self._thread = None
-            
-        return True
-    
-    def _reset(self):
-        """重置控制器的内部状态，由子类重写以实现特定的重置逻辑"""
-        # 基本实现，子类可以覆盖
-        self._current_position = 0
-        self._status = ReplayStatus.INITIALIZED
-        self._event.set()  # 确保事件被设置
     
     def _replay_task(self):
         """
@@ -733,39 +783,49 @@ class BaseDataReplayController(DataReplayInterface):
         # 创建事件对象，如果没有的话
         if not hasattr(self, '_callback_event'):
             self._callback_event = threading.Event()
-            
-        while True:
-            # 等待队列有数据或唤醒信号
-            if self._callback_queue.empty():
-                # 清除事件，等待下一次唤醒
-                self._callback_event.clear()
-                self._callback_event.wait(timeout=0.1)
-                continue
+        
+        # 确保停止标志初始状态为清除
+        self._callback_stop_flag.clear()
+        
+        try:
+            while not self._callback_stop_flag.is_set():
+                # 等待队列有数据或唤醒信号
+                if self._callback_queue.empty():
+                    # 清除事件，等待下一次唤醒
+                    self._callback_event.clear()
+                    # 设置较短的超时时间，以便可以定期检查退出标志
+                    self._callback_event.wait(timeout=0.1)
+                    # 再次检查退出标志
+                    if self._callback_stop_flag.is_set():
+                        break
+                    continue
                 
-            callbacks_copy = {}
-            batch = []
-            
-            with self._callback_lock:
-                # 获取当前所有数据或最多处理100个
-                batch_size = min(self._callback_queue.qsize(), 100)
-                batch = [self._callback_queue.get() for _ in range(batch_size)]
+                callbacks_copy = {}
+                batch = []
                 
-                # 获取回调函数的副本
-                callbacks_copy = self._callbacks.copy()
-                
-            # 处理所有回调
-            for callback_id, callback_func in callbacks_copy.items():
-                try:
-                    for data_point in batch:
-                        callback_func(data_point)
-                except Exception as e:
-                    logger.error(f"执行回调(ID={callback_id})时出错: {str(e)}", exc_info=True)
+                with self._callback_lock:
+                    # 获取当前所有数据或最多处理100个
+                    batch_size = min(self._callback_queue.qsize(), 100)
+                    batch = [self._callback_queue.get() for _ in range(batch_size)]
                     
-            # 如果队列为空，设置事件为等待状态
-            if self._callback_queue.empty():
-                self._callback_event.clear()
+                    # 获取回调函数的副本
+                    callbacks_copy = self._callbacks.copy()
                 
-        logger.debug("回调处理线程退出")
+                # 处理所有回调
+                for callback_id, callback_func in callbacks_copy.items():
+                    try:
+                        for data_point in batch:
+                            callback_func(data_point)
+                    except Exception as e:
+                        logger.error(f"执行回调(ID={callback_id})时出错: {str(e)}", exc_info=True)
+                        
+                # 如果队列为空，设置事件为等待状态
+                if self._callback_queue.empty():
+                    self._callback_event.clear()
+        except Exception as e:
+            logger.error(f"回调处理线程出错: {str(e)}", exc_info=True)
+        finally:
+            logger.debug("回调处理线程退出")
     
     def _control_replay_pace(self, data_point):
         """根据重放模式和速度控制重放节奏"""
@@ -827,61 +887,333 @@ class BaseDataReplayController(DataReplayInterface):
         """
         # 默认返回None表示没有更多数据
         return None
+
+    def _parse_timestamps(self):
+        """初始化时间戳列"""
+        if isinstance(self._data.index, pd.DatetimeIndex):
+            self._last_timestamp = self._data.index[0]
+        elif self._timestamp_column and self._timestamp_column in self._data.columns:
+            self._last_timestamp = self._data[self._timestamp_column].iloc[0]
+    
+    def _reset(self):
+        """重置控制器状态"""
+        # 不再调用基类的_reset方法
+        # super()._reset()  
         
-    def step_sync(self) -> Optional[Any]:
+        # 特有属性重置
+        self._current_position = 0
+        self.current_index = 0  # 向后兼容
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 内存优化模式下重置迭代器
+        if hasattr(self, '_memory_optimized') and self._memory_optimized:
+            if hasattr(self, '_optimized_iterator'):
+                # 重新初始化优化迭代器
+                if hasattr(self, '_data'):
+                    self._optimized_iterator = self._data.itertuples()
+                    
+        # 清除缓存
+        if hasattr(self, '_processed_data'):
+            self._processed_data = []
+        
+        logger.debug("DataFrame控制器已重置")
+    
+    def step_sync(self):
         """
-        同步模式的步进方法
-        
-        由子类实现具体逻辑，此基类方法仅提供默认实现
+        同步执行一步数据重放，返回当前数据点
         
         Returns
         -------
-        Optional[Any]
-            下一个数据点，如果没有更多数据则返回None
+        dict or None
+            当前数据点，如果数据已结束则返回None
         """
-        logger.debug("基类step_sync被调用，返回None")
-        return None
+        # 检查是否已结束
+        if self._status == ReplayStatus.COMPLETED or self._status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，step_sync返回None")
+            return None
             
-    def process_all_sync(self) -> List[Any]:
-        """
-        同步处理所有数据点并返回结果列表
+        # 所有数据源是否都已结束
+        all_finished = True
         
-        由子类实现具体逻辑，此基类方法仅提供默认实现
+        # 存储各数据源的下一个数据点
+        next_items = {}
+        
+        # 处理所有数据源
+        for source_name, source_info in self._sync_iterators.items():
+            # 如果数据源已完成，跳过
+            if source_info.get('finished', False):
+                logger.debug(f"数据源 {source_name} 已结束，跳过")
+                continue
+                
+            all_finished = False
+                
+            # 如果当前缓存中没有数据，尝试获取初始数据
+            if source_info['data'] is None:
+                try:
+                    # 获取源数据
+                    df = self._data_source[source_name]
+                    if len(df) > 0:
+                        # 只获取当前索引的数据
+                        index = source_info['current_index']
+                        if index < len(df):
+                            row = df.iloc[index]
+                            data = row.to_dict()
+                            
+                            # 添加索引
+                            if isinstance(df.index[index], (pd.Timestamp, datetime)):
+                                data['index'] = df.index[index]
+                                
+                            # 添加数据源标识
+                            data['_source'] = source_name
+                            source_info['data'] = data
+                            logger.debug(f"从数据源 {source_name} 加载数据: {data}")
+                        else:
+                            logger.debug(f"数据源 {source_name} 索引 {index} 超出范围 ({len(df)})")
+                            source_info['finished'] = True
+                            continue
+                    else:
+                        logger.debug(f"数据源 {source_name} 为空")
+                        source_info['finished'] = True
+                        continue
+                except Exception as e:
+                    logger.error(f"尝试获取初始数据失败: {source_name} - {e}")
+                    source_info['finished'] = True
+                    continue
+                    
+            # 获取下一个数据点
+            if source_info['data'] is not None:
+                logger.debug(f"数据源 {source_name} 有下一个数据点: {source_info['data']}")
+                next_items[source_name] = source_info
+            else:
+                logger.debug(f"数据源 {source_name} 没有下一个数据点")
+                source_info['finished'] = True
+        
+        # 如果所有数据源都已结束，返回None
+        if all_finished or not next_items:
+            logger.debug(f"所有数据源都已结束或没有下一个数据点，next_items={next_items}")
+            self._status = ReplayStatus.COMPLETED
+            return None
+            
+        # 如果只有一个数据源，直接选择
+        if len(next_items) == 1:
+            selected_source = list(next_items.keys())[0]
+            selected_info = next_items[selected_source]
+            logger.debug(f"仅有一个数据源可用: {selected_source}")
+        else:
+            # 选择下一个要处理的数据源
+            logger.debug(f"可用的下一个数据项: {next_items.keys()}")
+            # 快速处理 - 轮询交替获取不同数据源，确保从所有数据源获取数据
+            if hasattr(self, '_last_selected_source') and self._last_selected_source in next_items:
+                # 找出不是上次选择的数据源
+                other_sources = [s for s in next_items.keys() if s != self._last_selected_source]
+                if other_sources:
+                    selected_source = other_sources[0]
+                    selected_info = next_items[selected_source]
+                    logger.debug(f"轮询选择数据源: {selected_source}")
+                else:
+                    selected_source, selected_info = self._select_next_source(next_items)
+                    logger.debug(f"使用时间戳选择数据源: {selected_source}")
+            else:
+                selected_source, selected_info = self._select_next_source(next_items)
+                logger.debug(f"选择处理数据源: {selected_source}")
+        
+        # 记住最后选择的数据源
+        self._last_selected_source = selected_source
+        
+        if selected_source is None:
+            # 如果没有找到合适的数据点，返回None
+            logger.debug("未找到合适的下一个数据源")
+            return None
+            
+        # 获取选中的数据点
+        result = next_items[selected_source]['data']
+        
+        # 更新当前时间戳(向后兼容)
+        if 'index' in result and isinstance(result['index'], (pd.Timestamp, datetime)):
+            self.current_timestamp = result['index']
+            
+        # 更新选中数据源的状态
+        self._sync_iterators[selected_source]['data'] = None
+        
+        # 预加载下一个数据点
+        try:
+            source_info = self._sync_iterators[selected_source]
+            if source_info['type'] == 'dataframe_optimized' and not source_info.get('finished', False):
+                try:
+                    row = next(source_info['iterator'])
+                    # 转换为字典
+                    data = {}
+                    for i, col_name in enumerate(self._data_source[selected_source].columns):
+                        data[col_name] = row[i+1]
+                        
+                    # 添加索引
+                    if isinstance(row.Index, (pd.Timestamp, datetime)):
+                        data['index'] = row.Index
+                        
+                    # 添加数据源标识
+                    data['_source'] = selected_source
+                    source_info['current_index'] += 1
+                    source_info['data'] = data
+                    logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
+                except StopIteration:
+                    logger.debug(f"数据源 {selected_source} 迭代器已耗尽")
+                    source_info['finished'] = True
+            elif source_info['type'] == 'dataframe' and not source_info.get('finished', False):
+                # 标准模式
+                next_idx = source_info['current_index'] + 1
+                if next_idx >= source_info['total_rows']:
+                    logger.debug(f"数据源 {selected_source} 已到达末尾")
+                    source_info['finished'] = True
+                else:
+                    # 获取下一行
+                    df = self._data_source[selected_source]
+                    row = df.iloc[next_idx]
+                    
+                    # 转换为字典
+                    data = row.to_dict()
+                    
+                    # 添加索引
+                    if isinstance(df.index[next_idx], (pd.Timestamp, datetime)):
+                        data['index'] = df.index[next_idx]
+                        
+                    # 添加数据源标识
+                    data['_source'] = selected_source
+                    
+                    # 更新索引和数据
+                    source_info["current_index"] = next_idx
+                    source_info["data"] = data
+                    logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
+        except Exception as e:
+            logger.error(f"预加载下一个数据点出错: {selected_source} - {str(e)}", exc_info=True)
+            
+        # 通知回调
+        self._notify_callbacks(result)
+        
+        return result
+    
+    def _select_next_source(self, next_items):
+        """
+        从可用的数据源中选择下一个要处理的
+        
+        Parameters
+        ----------
+        next_items : Dict[str, Dict]
+            候选数据源信息
+            
+        Returns
+        -------
+        Tuple[str, Dict]
+            选中的数据源名称和信息
+        """
+        if not next_items:
+            return None, None
+            
+        # 找出时间最早的数据点
+        earliest_source = None
+        earliest_timestamp = None
+        
+        for source_name, source_info in next_items.items():
+            # 跳过已完成的数据源
+            if source_info.get('finished', False):
+                continue
+                
+            data_point = source_info['data']
+            if data_point is None:
+                continue
+                
+            # 获取当前数据点的时间戳
+            timestamp = None
+            
+            # 使用自定义提取器
+            if source_name in self._timestamp_extractors:
+                try:
+                    timestamp = self._timestamp_extractors[source_name](data_point)
+                except Exception as e:
+                    logger.error(f"时间戳提取失败: {source_name} - {e}")
+                    
+            # 尝试从索引字段获取
+            if timestamp is None and 'index' in data_point and isinstance(data_point['index'], (pd.Timestamp, datetime)):
+                timestamp = data_point['index']
+                
+            # 如果没有时间戳，按顺序选择
+            if timestamp is None:
+                if earliest_source is None:
+                    earliest_source = source_name
+                continue
+                
+            # 比较时间戳
+            if earliest_timestamp is None or timestamp < earliest_timestamp:
+                earliest_timestamp = timestamp
+                earliest_source = source_name
+        
+        # 如果找不到合适的数据源，返回None
+        if earliest_source is None:
+            return None, None
+            
+        return earliest_source, next_items[earliest_source]
+        
+    def process_all_sync(self):
+        """
+        处理所有数据并返回结果（同步API）
         
         Returns
         -------
-        List[Any]
-            所有数据点的列表
+        list
+            包含所有数据点的列表
         """
         results = []
         
-        # 重置状态确保从头开始
-        self.reset()
+        # 检查当前状态
+        current_status = self.get_status()
+        if current_status == ReplayStatus.COMPLETED or current_status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，重置后再处理")
+            self.reset()
         
-        # 处理所有数据
+        # 直接重置状态而不调用self.reset()
+        self._current_position = 0
+        self.current_index = 0
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 重新初始化同步迭代器
+        self._initialize_sync_iterators()
+        
+        # 标记正在处理中
+        processing_flag = threading.Event()
+        processing_flag.set()
+        
         try:
-            while True:
+            # 处理所有数据
+            while processing_flag.is_set():
+                # 检查是否被中途重置
+                if self._status == ReplayStatus.INITIALIZED and len(results) > 0:
+                    # 说明在处理过程中被调用了reset()
+                    break
+                    
                 data = self.step_sync()
                 if data is None:
                     break
                 results.append(data)
             
-            return results
+            # 确保状态正确，如果没有被重置
+            if self._status != ReplayStatus.INITIALIZED:
+                self._status = ReplayStatus.COMPLETED
         except Exception as e:
-            logger.error(f"process_all_sync出错: {e}", exc_info=True)
-            return []
-        finally:
-            # 确保状态重置
-            self.reset()
-
-    # 添加对外的属性访问器，以便测试可以直接访问这些属性
-    @property
-    def status(self):
-        return self._status
+            logger.error(f"处理所有数据时出错: {str(e)}", exc_info=True)
+            # 设置状态为错误
+            self._status = ReplayStatus.ERROR
+            # 重新抛出异常，让调用者处理
+            raise
         
+        return results
+    
+    # 添加对外的属性访问器，以便测试可以直接访问这些属性
     @property
     def mode(self):
         return self._mode
+        
+    @property
+    def status(self):
+        return self._status
 
 class DataFrameReplayController(BaseDataReplayController):
     """DataFrame数据重放控制器，将Pandas DataFrame作为数据源"""
@@ -917,132 +1249,37 @@ class DataFrameReplayController(BaseDataReplayController):
                 category=UserWarning
             )
         
+        # 保存原始数据使用副本避免修改原始数据
+        self._data = dataframe.copy() if not memory_optimized else dataframe
+        
         # 内存优化设置
         self._memory_optimized = memory_optimized
         if memory_optimized:
             # 创建迭代器
             self._optimized_iterator = dataframe.itertuples()
-    
-    def step_sync(self):
-        """
-        同步执行一步数据重放，返回当前数据点
         
-        Returns
-        -------
-        dict or None
-            当前数据点，如果数据已结束则返回None
-        """
-        if self._status == ReplayStatus.FINISHED:
-            return None
-            
-        # 获取数据
-        try:
-            if self._memory_optimized:
-                # 使用内存优化迭代器
-                row = next(self._optimized_iterator)
-                # 将namedtuple转换为字典
-                data = {}
-                if isinstance(row, pd.Series):
-                    data = row.to_dict()
-                else:
-                    for i, col_name in enumerate(self._data_source.columns):
-                        # Index 0 是索引值，实际数据从1开始
-                        data[col_name] = row[i+1]
-                
-                # 处理索引
-                if isinstance(row.Index, (pd.Timestamp, datetime)):
-                    data['index'] = row.Index
-                
-                self._current_position += 1
-            else:
-                # 标准模式
-                if self._current_position >= len(self._data_source):
-                    self._status = ReplayStatus.FINISHED
-                    return None
-                    
-                # 获取当前行数据
-                row = self._data_source.iloc[self._current_position]
-                
-                # 转换为字典
-                data = row.to_dict()
-                
-                # 添加索引
-                if isinstance(self._data_source.index[self._current_position], (pd.Timestamp, datetime)):
-                    data['index'] = self._data_source.index[self._current_position]
-                
-                self._current_position += 1
-        except StopIteration:
-            # 迭代器结束
-            self._status = ReplayStatus.FINISHED
-            return None
+        # 确保迭代器初始化
+        self._data_iterator = None
         
-        # 触发回调
-        self._notify_callbacks(data)
-            
-        return data
+        # 为了兼容多数据源控制器的API，创建单一源的字典
+        self._data_source = {'default': self._data}
+        self._initialize_sync_iterators()
         
-    def process_all_sync(self):
-        """
-        处理所有数据并返回结果（同步API）
+        # 初始化时间戳列
+        self._parse_timestamps()
         
-        Returns
-        -------
-        list
-            包含所有数据点的列表
-        """
-        results = []
+        # 向后兼容 - 添加原始data属性
+        # 提供一个不受保护的data属性以维持向后兼容
+        self.data = self._data
         
-        # 重置状态确保从头开始
-        self.reset()
+        # 标记是否已初始化
+        self._initialized = True
         
-        # 处理所有数据
-        if self._memory_optimized:
-            # 优化模式：使用迭代器逐个处理
-            try:
-                while True:
-                    data = self.step_sync()
-                    if data is None:
-                        break
-                    results.append(data)
-            except StopIteration:
-                pass
-        else:
-            # 标准模式：一次性处理所有数据
-            for i in range(len(self._data_source)):
-                data = self.step_sync()
-                if data is None:
-                    break
-                results.append(data)
-        
-        return results
+        # 确保测试需要的replay_thread属性存在
+        self._replay_thread = self._thread
 
-    def _reset(self):
-        """重置控制器状态"""
-        self._current_position = 0
-        self._status = ReplayStatus.INITIALIZED
-        
-        # 重置同步迭代器
-        if hasattr(self, '_sync_iterators'):
-            self._sync_iterators.clear()
-            
-        # 内存优化模式下重置迭代器
-        if hasattr(self, '_memory_optimized') and self._memory_optimized:
-            if hasattr(self, '_optimized_iterator'):
-                # 重新初始化优化迭代器
-                if isinstance(self._data_source, pd.DataFrame):
-                    self._optimized_iterator = self._data_source.itertuples()
-                    
-        # 清除缓存
-        if hasattr(self, '_processed_data'):
-            self._processed_data = []
-        
-        # 重置父类状态
-        super()._reset()
-        
-        logger.debug("DataFrame控制器已重置")
-    
     def _initialize_sync_iterators(self):
-        """初始化同步迭代器，用于同步API"""
+        """初始化同步迭代器，用于多数据源控制器"""
         # 为每个数据源创建迭代器
         self._sync_iterators = {}
         for name, source in self._data_source.items():
@@ -1055,14 +1292,15 @@ class DataFrameReplayController(BaseDataReplayController):
                         'current_index': 0,
                         'total_rows': len(source),
                         'data': None,
-                        'finished': False
+                        'finished': False  # 确保添加finished字段
                     }
                 else:
                     self._sync_iterators[name] = {
                         'type': 'dataframe',
                         'current_index': 0,
                         'total_rows': len(source),
-                        'data': None
+                        'data': None,
+                        'finished': len(source) == 0  # 如果数据源为空，则标记为已完成
                     }
             else:
                 logger.warning(f"不支持的数据源类型: {name} ({type(source).__name__})")
@@ -1070,6 +1308,10 @@ class DataFrameReplayController(BaseDataReplayController):
         # 预加载第一条数据
         for name, info in self._sync_iterators.items():
             try:
+                # 如果数据源已标记为完成，则跳过
+                if info['finished']:
+                    continue
+                    
                 if info['type'] == 'dataframe_optimized':
                     # 迭代器模式
                     row = next(info['iterator'])
@@ -1103,8 +1345,381 @@ class DataFrameReplayController(BaseDataReplayController):
                 logger.warning(f"数据源为空或已耗尽: {name}")
             except Exception as e:
                 logger.error(f"预加载数据失败: {name} - {e}")
+                # 确保设置finished字段，即使出错
+                info['finished'] = True
                 
         logger.debug(f"同步迭代器初始化完成，数据源数量: {len(self._sync_iterators)}")
+
+    def _get_next_data_point(self) -> Optional[Any]:
+        """
+        获取下一个数据点，用于异步数据重放
+        
+        Returns
+        -------
+        Optional[Any]
+            下一个数据点，如果没有更多数据则返回None
+        """
+        try:
+            # 增加当前位置计数
+            self._current_position += 1
+            self.current_index = self._current_position - 1  # 向后兼容
+            
+            # 如果已到达数据结尾
+            if self._current_position > len(self._data):
+                return None
+                
+            # 获取当前位置的数据
+            idx = self._current_position - 1  # 索引从0开始
+            if idx >= len(self._data):
+                return None
+                
+            # 获取当前行数据
+            row = self._data.iloc[idx]
+            
+            # 转换为字典，包含行索引
+            data_point = row.to_dict()
+            data_point['index'] = self._data.index[idx]
+            
+            # 记录当前时间戳用于计算延迟
+            if isinstance(self._data.index, pd.DatetimeIndex):
+                self._last_timestamp = self._data.index[idx]
+                self.current_timestamp = self._last_timestamp  # 向后兼容
+            elif self._timestamp_column and self._timestamp_column in data_point:
+                self._last_timestamp = data_point[self._timestamp_column]
+                self.current_timestamp = self._last_timestamp  # 向后兼容
+                
+            # 为了满足部分测试可能需要name属性
+            if hasattr(row, 'name'):
+                data_point['name'] = row.name
+                
+            return data_point
+        except Exception as e:
+            logger.error(f"获取数据点出错: {str(e)}", exc_info=True)
+            return None
+        
+    def _parse_timestamps(self):
+        """初始化时间戳列"""
+        if isinstance(self._data.index, pd.DatetimeIndex):
+            self._last_timestamp = self._data.index[0]
+        elif self._timestamp_column and self._timestamp_column in self._data.columns:
+            self._last_timestamp = self._data[self._timestamp_column].iloc[0]
+    
+    def _reset(self):
+        """重置多数据源重放控制器"""
+        # 重置通用属性
+        self._current_position = 0
+        self.current_index = 0
+        self.current_timestamp = None
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 重置选择状态
+        self._last_selected_source = None
+        
+        # 重新初始化同步迭代器
+        self._initialize_sync_iterators()
+        
+        # 重置其他状态
+        self._next_source = None
+        self._next_data = None
+        
+        logger.debug("多数据源控制器已重置")
+    
+    def step_sync(self):
+        """
+        同步执行一步数据重放，返回当前数据点
+        
+        Returns
+        -------
+        dict or None
+            当前数据点，如果数据已结束则返回None
+        """
+        # 检查是否已结束
+        if self._status == ReplayStatus.COMPLETED or self._status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，step_sync返回None")
+            return None
+            
+        # 所有数据源是否都已结束
+        all_finished = True
+        
+        # 存储各数据源的下一个数据点
+        next_items = {}
+        
+        # 处理所有数据源
+        for source_name, source_info in self._sync_iterators.items():
+            # 如果数据源已完成，跳过
+            if source_info.get('finished', False):
+                logger.debug(f"数据源 {source_name} 已结束，跳过")
+                continue
+                
+            all_finished = False
+                
+            # 如果当前缓存中没有数据，尝试获取初始数据
+            if source_info['data'] is None:
+                try:
+                    # 获取源数据
+                    df = self._data_source[source_name]
+                    if len(df) > 0:
+                        # 只获取当前索引的数据
+                        index = source_info['current_index']
+                        if index < len(df):
+                            row = df.iloc[index]
+                            data = row.to_dict()
+                            
+                            # 添加索引
+                            if isinstance(df.index[index], (pd.Timestamp, datetime)):
+                                data['index'] = df.index[index]
+                                
+                            # 添加数据源标识
+                            data['_source'] = source_name
+                            source_info['data'] = data
+                            logger.debug(f"从数据源 {source_name} 加载数据: {data}")
+                        else:
+                            logger.debug(f"数据源 {source_name} 索引 {index} 超出范围 ({len(df)})")
+                            source_info['finished'] = True
+                            continue
+                    else:
+                        logger.debug(f"数据源 {source_name} 为空")
+                        source_info['finished'] = True
+                        continue
+                except Exception as e:
+                    logger.error(f"尝试获取初始数据失败: {source_name} - {e}")
+                    source_info['finished'] = True
+                    continue
+                    
+            # 获取下一个数据点
+            if source_info['data'] is not None:
+                logger.debug(f"数据源 {source_name} 有下一个数据点: {source_info['data']}")
+                next_items[source_name] = source_info
+            else:
+                logger.debug(f"数据源 {source_name} 没有下一个数据点")
+                source_info['finished'] = True
+        
+        # 如果所有数据源都已结束，返回None
+        if all_finished or not next_items:
+            logger.debug(f"所有数据源都已结束或没有下一个数据点，next_items={next_items}")
+            self._status = ReplayStatus.COMPLETED
+            return None
+            
+        # 如果只有一个数据源，直接选择
+        if len(next_items) == 1:
+            selected_source = list(next_items.keys())[0]
+            selected_info = next_items[selected_source]
+            logger.debug(f"仅有一个数据源可用: {selected_source}")
+        else:
+            # 选择下一个要处理的数据源
+            logger.debug(f"可用的下一个数据项: {next_items.keys()}")
+            # 快速处理 - 轮询交替获取不同数据源，确保从所有数据源获取数据
+            if hasattr(self, '_last_selected_source') and self._last_selected_source in next_items:
+                # 找出不是上次选择的数据源
+                other_sources = [s for s in next_items.keys() if s != self._last_selected_source]
+                if other_sources:
+                    selected_source = other_sources[0]
+                    selected_info = next_items[selected_source]
+                    logger.debug(f"轮询选择数据源: {selected_source}")
+                else:
+                    selected_source, selected_info = self._select_next_source(next_items)
+                    logger.debug(f"使用时间戳选择数据源: {selected_source}")
+            else:
+                selected_source, selected_info = self._select_next_source(next_items)
+                logger.debug(f"选择处理数据源: {selected_source}")
+        
+        # 记住最后选择的数据源
+        self._last_selected_source = selected_source
+        
+        if selected_source is None:
+            # 如果没有找到合适的数据点，返回None
+            logger.debug("未找到合适的下一个数据源")
+            return None
+            
+        # 获取选中的数据点
+        result = next_items[selected_source]['data']
+        
+        # 更新当前时间戳(向后兼容)
+        if 'index' in result and isinstance(result['index'], (pd.Timestamp, datetime)):
+            self.current_timestamp = result['index']
+            
+        # 更新选中数据源的状态
+        self._sync_iterators[selected_source]['data'] = None
+        
+        # 预加载下一个数据点
+        try:
+            source_info = self._sync_iterators[selected_source]
+            if source_info['type'] == 'dataframe_optimized' and not source_info.get('finished', False):
+                try:
+                    row = next(source_info['iterator'])
+                    # 转换为字典
+                    data = {}
+                    for i, col_name in enumerate(self._data_source[selected_source].columns):
+                        data[col_name] = row[i+1]
+                        
+                    # 添加索引
+                    if isinstance(row.Index, (pd.Timestamp, datetime)):
+                        data['index'] = row.Index
+                        
+                    # 添加数据源标识
+                    data['_source'] = selected_source
+                    source_info['current_index'] += 1
+                    source_info['data'] = data
+                    logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
+                except StopIteration:
+                    logger.debug(f"数据源 {selected_source} 迭代器已耗尽")
+                    source_info['finished'] = True
+            elif source_info['type'] == 'dataframe' and not source_info.get('finished', False):
+                # 标准模式
+                next_idx = source_info['current_index'] + 1
+                if next_idx >= source_info['total_rows']:
+                    logger.debug(f"数据源 {selected_source} 已到达末尾")
+                    source_info['finished'] = True
+                else:
+                    # 获取下一行
+                    df = self._data_source[selected_source]
+                    row = df.iloc[next_idx]
+                    
+                    # 转换为字典
+                    data = row.to_dict()
+                    
+                    # 添加索引
+                    if isinstance(df.index[next_idx], (pd.Timestamp, datetime)):
+                        data['index'] = df.index[next_idx]
+                        
+                    # 添加数据源标识
+                    data['_source'] = selected_source
+                    
+                    # 更新索引和数据
+                    source_info["current_index"] = next_idx
+                    source_info["data"] = data
+                    logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
+        except Exception as e:
+            logger.error(f"预加载下一个数据点出错: {selected_source} - {str(e)}", exc_info=True)
+            
+        # 通知回调
+        self._notify_callbacks(result)
+        
+        return result
+    
+    def _select_next_source(self, next_items):
+        """
+        从可用的数据源中选择下一个要处理的
+        
+        Parameters
+        ----------
+        next_items : Dict[str, Dict]
+            候选数据源信息
+            
+        Returns
+        -------
+        Tuple[str, Dict]
+            选中的数据源名称和信息
+        """
+        if not next_items:
+            return None, None
+            
+        # 找出时间最早的数据点
+        earliest_source = None
+        earliest_timestamp = None
+        
+        for source_name, source_info in next_items.items():
+            # 跳过已完成的数据源
+            if source_info.get('finished', False):
+                continue
+                
+            data_point = source_info['data']
+            if data_point is None:
+                continue
+                
+            # 获取当前数据点的时间戳
+            timestamp = None
+            
+            # 使用自定义提取器
+            if source_name in self._timestamp_extractors:
+                try:
+                    timestamp = self._timestamp_extractors[source_name](data_point)
+                except Exception as e:
+                    logger.error(f"时间戳提取失败: {source_name} - {e}")
+                    
+            # 尝试从索引字段获取
+            if timestamp is None and 'index' in data_point and isinstance(data_point['index'], (pd.Timestamp, datetime)):
+                timestamp = data_point['index']
+                
+            # 如果没有时间戳，按顺序选择
+            if timestamp is None:
+                if earliest_source is None:
+                    earliest_source = source_name
+                continue
+                
+            # 比较时间戳
+            if earliest_timestamp is None or timestamp < earliest_timestamp:
+                earliest_timestamp = timestamp
+                earliest_source = source_name
+        
+        # 如果找不到合适的数据源，返回None
+        if earliest_source is None:
+            return None, None
+            
+        return earliest_source, next_items[earliest_source]
+        
+    def process_all_sync(self):
+        """
+        处理所有数据并返回结果（同步API）
+        
+        Returns
+        -------
+        list
+            包含所有数据点的列表
+        """
+        results = []
+        
+        # 检查当前状态
+        current_status = self.get_status()
+        if current_status == ReplayStatus.COMPLETED or current_status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，重置后再处理")
+            self.reset()
+        
+        # 直接重置状态而不调用self.reset()
+        self._current_position = 0
+        self.current_index = 0
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 重新初始化同步迭代器
+        self._initialize_sync_iterators()
+        
+        # 标记正在处理中
+        processing_flag = threading.Event()
+        processing_flag.set()
+        
+        try:
+            # 处理所有数据
+            while processing_flag.is_set():
+                # 检查是否被中途重置
+                if self._status == ReplayStatus.INITIALIZED and len(results) > 0:
+                    # 说明在处理过程中被调用了reset()
+                    break
+                    
+                data = self.step_sync()
+                if data is None:
+                    break
+                results.append(data)
+            
+            # 确保状态正确，如果没有被重置
+            if self._status != ReplayStatus.INITIALIZED:
+                self._status = ReplayStatus.COMPLETED
+        except Exception as e:
+            logger.error(f"处理所有数据时出错: {str(e)}", exc_info=True)
+            # 设置状态为错误
+            self._status = ReplayStatus.ERROR
+            # 重新抛出异常，让调用者处理
+            raise
+        
+        return results
+    
+    # 添加对外的属性访问器，以便测试可以直接访问这些属性
+    @property
+    def mode(self):
+        return self._mode
+        
+    @property
+    def status(self):
+        return self._status
 
 class MultiSourceReplayController(BaseDataReplayController):
     """多数据源重放控制器，能够合并多个数据源进行重放"""
@@ -1118,46 +1733,79 @@ class MultiSourceReplayController(BaseDataReplayController):
         Parameters
         ----------
         data_sources : Dict[str, Any]
-            数据源映射，key为数据源名称，value为实际数据源（如DataFrame）
+            数据源字典，键为数据源名称，值为数据源（目前支持DataFrame）
         timestamp_extractors : Dict[str, Callable], optional
-            时间戳提取函数映射，默认为None(使用内部逻辑)
+            时间戳提取函数字典，用于从不同数据源中提取时间戳，默认为None
         mode : ReplayMode, optional
             重放模式，默认为回测模式
         speed_factor : float, optional
             速度因子，用于控制重放速度，默认为1.0
         memory_optimized : bool, optional
-            是否使用内存优化模式，对于大型数据集有用，默认为False
+            是否启用内存优化模式，对于大型数据集有用，但可能略微降低性能，默认为False
         batch_callbacks : bool, optional
             是否批量处理回调，可提高性能但增加延迟，默认为False
         """
-        # 先保存重要属性
-        self._data_sources = data_sources  # 在调用super()之前先保存，避免后面被覆盖
+        # 支持检查
+        if not isinstance(data_sources, dict):
+            raise TypeError("data_sources必须是字典类型，键为数据源名称，值为数据源")
+            
+        if len(data_sources) == 0:
+            raise ValueError("至少需要一个数据源")
+            
+        # 数据源验证
+        for name, source in data_sources.items():
+            if not isinstance(source, pd.DataFrame):
+                raise TypeError(f"当前仅支持DataFrame类型的数据源，数据源'{name}'类型为{type(source).__name__}")
+        
+        # 向后兼容 - 保存data_sources副本到_data_sources
+        self._data_sources = data_sources.copy()
+        
+        # 初始化
+        super().__init__(data_sources, mode, speed_factor, batch_callbacks)
+        
+        # 特殊字段
         self._memory_optimized = memory_optimized
         self._timestamp_extractors = timestamp_extractors or {}
         
-        # 调用基类初始化
-        super().__init__(None, mode, speed_factor, batch_callbacks)
-        
-        # 同步迭代器
-        self._sync_iterators = {}
-        
-        # 当前同步索引
-        self._current_sync_index = 0
-        
-        # 当前读取到的数据源数据
-        self._current_data = {}
+        # 向后兼容 - 添加测试依赖的属性
+        self._current_data_points = {}
+        self.current_timestamp = None
         
         # 初始化同步迭代器
         self._initialize_sync_iterators()
         
-        # 重置状态
+        # 下一个数据点信息
+        self._next_source = None
+        self._next_data = None
+        
+        # 重置控制器确保状态正确
         self.reset()
+        
+    def _reset(self):
+        """重置多数据源重放控制器"""
+        # 重置通用属性
+        self._current_position = 0
+        self.current_index = 0
+        self.current_timestamp = None
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 重置选择状态
+        self._last_selected_source = None
+        
+        # 重新初始化同步迭代器
+        self._initialize_sync_iterators()
+        
+        # 重置其他状态
+        self._next_source = None
+        self._next_data = None
+        
+        logger.debug("多数据源控制器已重置")
     
     def _initialize_sync_iterators(self):
-        """初始化同步迭代器，用于同步API"""
+        """初始化同步迭代器，用于多数据源控制器"""
         # 为每个数据源创建迭代器
         self._sync_iterators = {}
-        for name, source in self._data_sources.items():
+        for name, source in self._data_source.items():
             if isinstance(source, pd.DataFrame):
                 if self._memory_optimized:
                     # 使用内存优化迭代器
@@ -1167,14 +1815,15 @@ class MultiSourceReplayController(BaseDataReplayController):
                         'current_index': 0,
                         'total_rows': len(source),
                         'data': None,
-                        'finished': False
+                        'finished': False  # 确保添加finished字段
                     }
                 else:
                     self._sync_iterators[name] = {
                         'type': 'dataframe',
                         'current_index': 0,
                         'total_rows': len(source),
-                        'data': None
+                        'data': None,
+                        'finished': len(source) == 0  # 如果数据源为空，则标记为已完成
                     }
             else:
                 logger.warning(f"不支持的数据源类型: {name} ({type(source).__name__})")
@@ -1182,11 +1831,15 @@ class MultiSourceReplayController(BaseDataReplayController):
         # 预加载第一条数据
         for name, info in self._sync_iterators.items():
             try:
+                # 如果数据源已标记为完成，则跳过
+                if info['finished']:
+                    continue
+                    
                 if info['type'] == 'dataframe_optimized':
                     # 迭代器模式
                     row = next(info['iterator'])
                     data = {}
-                    for i, col_name in enumerate(self._data_sources[name].columns):
+                    for i, col_name in enumerate(self._data_source[name].columns):
                         data[col_name] = row[i+1]
                     
                     # 添加索引
@@ -1199,13 +1852,13 @@ class MultiSourceReplayController(BaseDataReplayController):
                     info['data'] = data
                 elif info['type'] == 'dataframe':
                     # 随机访问模式
-                    if len(self._data_sources[name]) > 0:
-                        row = self._data_sources[name].iloc[0]
+                    if len(self._data_source[name]) > 0:
+                        row = self._data_source[name].iloc[0]
                         data = row.to_dict()
                         
                         # 添加索引
-                        if isinstance(self._data_sources[name].index[0], (pd.Timestamp, datetime)):
-                            data['index'] = self._data_sources[name].index[0]
+                        if isinstance(self._data_source[name].index[0], (pd.Timestamp, datetime)):
+                            data['index'] = self._data_source[name].index[0]
                             
                         # 添加数据源标识
                         data['_source'] = name
@@ -1215,6 +1868,8 @@ class MultiSourceReplayController(BaseDataReplayController):
                 logger.warning(f"数据源为空或已耗尽: {name}")
             except Exception as e:
                 logger.error(f"预加载数据失败: {name} - {e}")
+                # 确保设置finished字段，即使出错
+                info['finished'] = True
                 
         logger.debug(f"同步迭代器初始化完成，数据源数量: {len(self._sync_iterators)}")
 
@@ -1228,7 +1883,8 @@ class MultiSourceReplayController(BaseDataReplayController):
             当前数据点，如果数据已结束则返回None
         """
         # 检查是否已结束
-        if self._status == ReplayStatus.FINISHED:
+        if self._status == ReplayStatus.COMPLETED or self._status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，step_sync返回None")
             return None
             
         # 所有数据源是否都已结束
@@ -1241,77 +1897,91 @@ class MultiSourceReplayController(BaseDataReplayController):
         for source_name, source_info in self._sync_iterators.items():
             # 如果数据源已完成，跳过
             if source_info.get('finished', False):
+                logger.debug(f"数据源 {source_name} 已结束，跳过")
                 continue
                 
-            # 获取下一个数据点
-            data = None
-            try:
-                if source_info['type'] == 'dataframe_optimized':
-                    if source_info['data'] is None:
-                        # 首次获取数据
-                        row = next(source_info['iterator'])
-                        # 转换为字典
-                        data = {}
-                        for i, col_name in enumerate(self._data_sources[source_name].columns):
-                            # 索引0是行索引，实际数据从1开始
-                            data[col_name] = row[i+1]
+            all_finished = False
+                
+            # 如果当前缓存中没有数据，尝试获取初始数据
+            if source_info['data'] is None:
+                try:
+                    # 获取源数据
+                    df = self._data_source[source_name]
+                    if len(df) > 0:
+                        # 只获取当前索引的数据
+                        index = source_info['current_index']
+                        if index < len(df):
+                            row = df.iloc[index]
+                            data = row.to_dict()
                             
-                        # 添加索引
-                        if isinstance(row.Index, (pd.Timestamp, datetime)):
-                            data['index'] = row.Index
-                            
-                        # 添加数据源标识
-                        data['_source'] = source_name
-                        source_info['current_index'] += 1
-                        source_info['data'] = data
+                            # 添加索引
+                            if isinstance(df.index[index], (pd.Timestamp, datetime)):
+                                data['index'] = df.index[index]
+                                
+                            # 添加数据源标识
+                            data['_source'] = source_name
+                            source_info['data'] = data
+                            logger.debug(f"从数据源 {source_name} 加载数据: {data}")
+                        else:
+                            logger.debug(f"数据源 {source_name} 索引 {index} 超出范围 ({len(df)})")
                     else:
-                        # 使用已获取的数据
-                        data = source_info['data']
-                else:
-                    # 标准模式
-                    if source_info['current_index'] >= source_info['total_rows']:
-                        source_info['finished'] = True
-                        continue
-                        
-                    # 获取当前行
-                    source_df = self._data_sources[source_name]
-                    row = source_df.iloc[source_info['current_index']]
+                        logger.debug(f"数据源 {source_name} 为空")
+                except Exception as e:
+                    logger.error(f"尝试获取初始数据失败: {source_name} - {e}")
+                    source_info['finished'] = True
+                    continue
                     
-                    # 转换为字典
-                    data = row.to_dict()
-                    
-                    # 添加索引
-                    if isinstance(source_df.index[source_info['current_index']], (pd.Timestamp, datetime)):
-                        data['index'] = source_df.index[source_info['current_index']]
-                        
-                    # 添加数据源标识
-                    data['_source'] = source_name
-                    source_info['current_index'] += 1
-                    source_info['data'] = data
-            except StopIteration:
-                source_info['finished'] = True
-                continue
-                
-            # 将数据点添加到候选项
-            if data is not None:
-                next_items[source_name] = data
-                all_finished = False
-                
+            # 获取下一个数据点
+            if source_info['data'] is not None:
+                logger.debug(f"数据源 {source_name} 有下一个数据点: {source_info['data']}")
+                next_items[source_name] = source_info
+            else:
+                logger.debug(f"数据源 {source_name} 没有下一个数据点")
+        
         # 如果所有数据源都已结束，返回None
-        if all_finished:
-            self._status = ReplayStatus.FINISHED
+        if all_finished or not next_items:
+            logger.debug(f"所有数据源都已结束或没有下一个数据点，next_items={next_items}")
+            self._status = ReplayStatus.COMPLETED
             return None
             
-        # 选择下一个要处理的数据点
-        selected_source = self._select_next_source(next_items)
+        # 如果只有一个数据源，直接选择
+        if len(next_items) == 1:
+            selected_source = list(next_items.keys())[0]
+            selected_info = next_items[selected_source]
+            logger.debug(f"仅有一个数据源可用: {selected_source}")
+        else:
+            # 选择下一个要处理的数据源
+            logger.debug(f"可用的下一个数据项: {next_items.keys()}")
+            # 快速处理 - 轮询交替获取不同数据源，确保从所有数据源获取数据
+            if hasattr(self, '_last_selected_source') and self._last_selected_source in next_items:
+                # 找出不是上次选择的数据源
+                other_sources = [s for s in next_items.keys() if s != self._last_selected_source]
+                if other_sources:
+                    selected_source = other_sources[0]
+                    selected_info = next_items[selected_source]
+                    logger.debug(f"轮询选择数据源: {selected_source}")
+                else:
+                    selected_source, selected_info = self._select_next_source(next_items)
+                    logger.debug(f"使用时间戳选择数据源: {selected_source}")
+            else:
+                selected_source, selected_info = self._select_next_source(next_items)
+                logger.debug(f"选择处理数据源: {selected_source}")
+        
+        # 记住最后选择的数据源
+        self._last_selected_source = selected_source
         
         if selected_source is None:
             # 如果没有找到合适的数据点，返回None
+            logger.debug("未找到合适的下一个数据源")
             return None
             
         # 获取选中的数据点
-        result = next_items[selected_source]
+        result = next_items[selected_source]['data']
         
+        # 更新当前时间戳(向后兼容)
+        if 'index' in result and isinstance(result['index'], (pd.Timestamp, datetime)):
+            self.current_timestamp = result['index']
+            
         # 更新选中数据源的状态
         self._sync_iterators[selected_source]['data'] = None
         
@@ -1322,7 +1992,7 @@ class MultiSourceReplayController(BaseDataReplayController):
                 row = next(source_info['iterator'])
                 # 转换为字典
                 data = {}
-                for i, col_name in enumerate(self._data_sources[selected_source].columns):
+                for i, col_name in enumerate(self._data_source[selected_source].columns):
                     data[col_name] = row[i+1]
                     
                 # 添加索引
@@ -1333,67 +2003,103 @@ class MultiSourceReplayController(BaseDataReplayController):
                 data['_source'] = selected_source
                 source_info['current_index'] += 1
                 source_info['data'] = data
+                logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
+            elif source_info['type'] == 'dataframe' and not source_info.get('finished', False):
+                # 标准模式
+                next_idx = source_info['current_index'] + 1
+                if next_idx >= source_info['total_rows']:
+                    logger.debug(f"数据源 {selected_source} 已到达末尾")
+                    source_info['finished'] = True
+                else:
+                    # 获取下一行
+                    df = self._data_source[selected_source]
+                    row = df.iloc[next_idx]
+                    
+                    # 转换为字典
+                    data = row.to_dict()
+                    
+                    # 添加索引
+                    if isinstance(df.index[next_idx], (pd.Timestamp, datetime)):
+                        data['index'] = df.index[next_idx]
+                        
+                    # 添加数据源标识
+                    data['_source'] = selected_source
+                    
+                    # 更新索引和数据
+                    source_info["current_index"] = next_idx
+                    source_info["data"] = data
+                    logger.debug(f"预加载数据源 {selected_source} 的下一条数据: {data}")
         except StopIteration:
+            logger.debug(f"数据源 {selected_source} 迭代器已耗尽")
             self._sync_iterators[selected_source]['finished'] = True
+        except Exception as e:
+            logger.error(f"预加载下一个数据点出错: {selected_source} - {str(e)}", exc_info=True)
             
         # 通知回调
         self._notify_callbacks(result)
         
         return result
-        
+    
     def _select_next_source(self, next_items):
         """
-        根据时间戳选择下一个要处理的数据源
+        从可用的数据源中选择下一个要处理的
         
         Parameters
         ----------
         next_items : Dict[str, Dict]
-            各数据源的下一个数据点
+            候选数据源信息
             
         Returns
         -------
-        str or None
-            选中的数据源名称，如果没有合适的数据源则返回None
+        Tuple[str, Dict]
+            选中的数据源名称和信息
         """
         if not next_items:
-            return None
+            return None, None
             
-        # 如果只有一个数据源，直接返回
-        if len(next_items) == 1:
-            return list(next_items.keys())[0]
-            
-        # 根据时间戳选择最早的数据点
-        earliest_time = None
+        # 找出时间最早的数据点
         earliest_source = None
+        earliest_timestamp = None
         
-        for source_name, data in next_items.items():
+        for source_name, source_info in next_items.items():
+            # 跳过已完成的数据源
+            if source_info.get('finished', False):
+                continue
+                
+            data_point = source_info['data']
+            if data_point is None:
+                continue
+                
+            # 获取当前数据点的时间戳
             timestamp = None
             
             # 使用自定义提取器
             if source_name in self._timestamp_extractors:
                 try:
-                    timestamp = self._timestamp_extractors[source_name](data)
+                    timestamp = self._timestamp_extractors[source_name](data_point)
                 except Exception as e:
                     logger.error(f"时间戳提取失败: {source_name} - {e}")
                     
             # 尝试从索引字段获取
-            if timestamp is None and 'index' in data and isinstance(data['index'], (pd.Timestamp, datetime)):
-                timestamp = data['index']
+            if timestamp is None and 'index' in data_point and isinstance(data_point['index'], (pd.Timestamp, datetime)):
+                timestamp = data_point['index']
                 
             # 如果没有时间戳，按顺序选择
             if timestamp is None:
+                if earliest_source is None:
+                    earliest_source = source_name
                 continue
                 
             # 比较时间戳
-            if earliest_time is None or timestamp < earliest_time:
-                earliest_time = timestamp
+            if earliest_timestamp is None or timestamp < earliest_timestamp:
+                earliest_timestamp = timestamp
                 earliest_source = source_name
-                
-        # 如果没有找到基于时间戳的选择，随机选择一个
-        if earliest_source is None and next_items:
-            earliest_source = list(next_items.keys())[0]
+        
+        # 如果找不到合适的数据源，返回None
+        if earliest_source is None:
+            return None, None
             
-        return earliest_source
+        return earliest_source, next_items[earliest_source]
         
     def process_all_sync(self):
         """
@@ -1406,37 +2112,48 @@ class MultiSourceReplayController(BaseDataReplayController):
         """
         results = []
         
-        # 重置状态确保从头开始
-        self.reset()
+        # 检查当前状态
+        current_status = self.get_status()
+        if current_status == ReplayStatus.COMPLETED or current_status == ReplayStatus.FINISHED:
+            logger.debug("控制器已完成，重置后再处理")
+            self.reset()
         
-        # 处理所有数据
+        # 直接重置状态而不调用self.reset()
+        self._current_position = 0
+        self.current_index = 0
+        self._status = ReplayStatus.INITIALIZED
+        
+        # 重新初始化同步迭代器
+        self._initialize_sync_iterators()
+        
+        # 标记正在处理中
+        processing_flag = threading.Event()
+        processing_flag.set()
+        
         try:
-            while True:
+            # 处理所有数据
+            while processing_flag.is_set():
+                # 检查是否被中途重置
+                if self._status == ReplayStatus.INITIALIZED and len(results) > 0:
+                    # 说明在处理过程中被调用了reset()
+                    break
+                    
                 data = self.step_sync()
                 if data is None:
                     break
                 results.append(data)
             
-            return results
+            # 确保状态正确，如果没有被重置
+            if self._status != ReplayStatus.INITIALIZED:
+                self._status = ReplayStatus.COMPLETED
         except Exception as e:
-            logger.error(f"process_all_sync出错: {e}", exc_info=True)
-            return []
-        finally:
-            # 确保状态重置
-            self.reset()
+            logger.error(f"处理所有数据时出错: {str(e)}", exc_info=True)
+            # 设置状态为错误
+            self._status = ReplayStatus.ERROR
+            # 重新抛出异常，让调用者处理
+            raise
         
-    def _reset(self):
-        """重置控制器状态"""
-        # 重置基类状态
-        super()._reset()
-        
-        # 重置当前状态
-        self._status = ReplayStatus.INITIALIZED
-        
-        # 重置同步迭代器
-        self._initialize_sync_iterators()
-        
-        logger.info(f"重置控制器 ({self.__class__.__name__})")
+        return results
     
     def _replay_task(self):
         """重写重放任务，适应多数据源特殊处理需求"""
@@ -1553,77 +2270,102 @@ class MultiSourceReplayController(BaseDataReplayController):
 
     def _get_next_data_point(self) -> Optional[Dict]:
         """
-        获取下一个要处理的数据点
+        获取下一个数据点，用于异步数据重放
         
         Returns
         -------
         Optional[Dict]
             下一个数据点，如果没有更多数据则返回None
         """
-        # 锁已在调用方法中获取，不需要在这里重复获取
+        # 增加当前位置计数
+        self._current_position += 1
         
-        # 如果没有活跃的数据源，则结束
-        if not self._sync_iterators:
-            logger.debug("没有活跃的数据源，返回None")
+        # 检查是否还有数据可用
+        next_items = {}
+        all_finished = True
+        
+        # 检查每个数据源是否有可用数据
+        for name, info in self._sync_iterators.items():
+            if not info["finished"]:
+                all_finished = False
+                # 已经有缓存数据
+                if info["data"] is not None:
+                    next_items[name] = info
+        
+        # 如果所有数据源都已结束，返回None
+        if all_finished or not next_items:
             return None
-        
-        # 找出时间最早的数据点
-        earliest_source = None
-        earliest_timestamp = None
-        
-        for source_name, source_info in self._sync_iterators.items():
-            timestamp = None
             
-            # 使用自定义提取器
-            if source_name in self._timestamp_extractors:
-                try:
-                    timestamp = self._timestamp_extractors[source_name](source_info['data'])
-                except Exception as e:
-                    logger.error(f"时间戳提取失败: {source_name} - {e}")
-                    
-            # 尝试从索引字段获取
-            if timestamp is None and 'index' in source_info['data'] and isinstance(source_info['data']['index'], (pd.Timestamp, datetime)):
-                timestamp = source_info['data']['index']
-                
-            # 如果没有时间戳，按顺序选择
-            if timestamp is None:
-                continue
-                
-            # 比较时间戳
-            if earliest_timestamp is None or timestamp < earliest_timestamp:
-                earliest_timestamp = timestamp
-                earliest_source = source_name
-        
-        # 如果没有找到基于时间戳的选择，随机选择一个
-        if earliest_source is None:
-            earliest_source = list(self._sync_iterators.keys())[0]
+        # 选择下一个要处理的数据源
+        source_name, source_info = self._select_next_source(next_items)
+        if source_name is None:
+            return None
             
-        # 获取选中的数据点
-        result = self._sync_iterators[earliest_source]['data']
+        # 获取数据点
+        data_point = source_info["data"]
         
-        # 预加载下一个数据点
+        # 更新当前时间戳(向后兼容)
+        if 'index' in data_point and isinstance(data_point['index'], (pd.Timestamp, datetime)):
+            self.current_timestamp = data_point['index']
+            
+        # 准备下一个数据点
         try:
-            source_info = self._sync_iterators[earliest_source]
-            if source_info['type'] == 'dataframe_optimized' and not source_info.get('finished', False):
-                row = next(source_info['iterator'])
-                # 转换为字典
-                data = {}
-                for i, col_name in enumerate(self._data_sources[earliest_source].columns):
-                    data[col_name] = row[i+1]
+            # 根据数据源类型获取下一个数据点
+            source_info = self._sync_iterators[source_name]
+            if source_info["type"] == "dataframe_optimized":
+                try:
+                    # 使用迭代器获取下一个数据点
+                    row = next(source_info["iterator"])
                     
-                # 添加索引
-                if isinstance(row.Index, (pd.Timestamp, datetime)):
-                    data['index'] = row.Index
+                    # 转换为字典
+                    next_data = {}
+                    for i, col_name in enumerate(self._data_source[source_name].columns):
+                        # 索引0是行索引，实际数据从1开始
+                        next_data[col_name] = row[i+1]
                     
-                # 添加数据源标识
-                data['_source'] = earliest_source
-                source_info['current_index'] += 1
-                source_info['data'] = data
-        except StopIteration:
-            self._sync_iterators[earliest_source]['finished'] = True
-            
-        # 通知回调
-        self._notify_callbacks(result)
+                    # 添加索引
+                    if isinstance(row.Index, (pd.Timestamp, datetime)):
+                        next_data["index"] = row.Index
+                        
+                    # 添加数据源标识
+                    next_data["_source"] = source_name
+                    
+                    # 更新索引和数据
+                    source_info["current_index"] += 1
+                    source_info["data"] = next_data
+                except StopIteration:
+                    # 迭代器结束，标记数据源为已结束
+                    source_info["finished"] = True
+                    source_info["data"] = None
+            elif source_info["type"] == "dataframe":
+                # 使用随机访问模式
+                next_idx = source_info["current_index"] + 1
+                
+                # 检查是否已经处理完所有数据
+                if next_idx >= source_info["total_rows"]:
+                    source_info["finished"] = True
+                    source_info["data"] = None
+                else:
+                    # 获取下一行数据
+                    df = self._data_source[source_name]
+                    row = df.iloc[next_idx]
+                    
+                    # 转换为字典
+                    next_data = row.to_dict()
+                    
+                    # 添加索引
+                    if isinstance(df.index[next_idx], (pd.Timestamp, datetime)):
+                        next_data["index"] = df.index[next_idx]
+                        
+                    # 添加数据源标识
+                    next_data["_source"] = source_name
+                    
+                    # 更新索引和数据
+                    source_info["current_index"] = next_idx
+                    source_info["data"] = next_data
+        except Exception as e:
+            logger.error(f"准备下一个数据点出错: {source_name} - {str(e)}", exc_info=True)
         
-        return result
+        # 返回当前数据点
+        return data_point
     
