@@ -93,7 +93,7 @@ class TestDataProcessor:
         result = DataProcessor.resample(
             self.ohlcv_data, 
             source_freq='1D', 
-            target_freq='1M', 
+            target_freq='ME',
             method='ohlc'
         )
         

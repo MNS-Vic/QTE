@@ -32,22 +32,23 @@ class DataProcessor:
                 method: str = 'ohlc',
                 dropna: bool = True) -> pd.DataFrame:
         """
-        重采样数据，如从1分钟到5分钟、日线到周线等
+        重采样时间序列数据到不同频率
         
         Parameters
         ----------
         data : pd.DataFrame
-            输入数据，必须含有时间索引
+            输入数据，必须有DatetimeIndex索引
         source_freq : str
-            源数据频率，如'1min', '1d'等
+            源数据频率（使用pandas频率字符串，如'D'表示日度，'H'表示小时）
         target_freq : str
-            目标频率，如'5min', '1W'等
+            目标频率（使用pandas频率字符串，如'M'表示月度，'W'表示周度）
+            注意：月度频率应使用'ME'而非'M'，表示月末
         method : str, optional
             重采样方法, by default 'ohlc'
             支持的方法:
-            - 'ohlc': 开高低收方法(适用于K线数据)
-            - 'last': 取每个时间段最后一个值
-            - 'mean': 取每个时间段的平均值
+            - 'ohlc': OHLC方法（适用于价格数据，保留开高低收）
+            - 'last': 使用每个周期的最后一个值
+            - 'mean': 使用每个周期的平均值
         dropna : bool, optional
             是否删除缺失值, by default True
             
@@ -56,41 +57,32 @@ class DataProcessor:
         pd.DataFrame
             重采样后的数据
             
-        Raises
-        ------
-        ValueError
-            当输入数据不包含必要的列时
-            
         Examples
         --------
-        >>> # 将1分钟数据转换为5分钟数据
-        >>> five_min_data = DataProcessor.resample(one_min_data, '1min', '5min')
-        
-        >>> # 将日线数据转换为周线数据
-        >>> weekly_data = DataProcessor.resample(daily_data, '1d', '1W')
+        >>> # 将日度数据重采样为月度
+        >>> monthly_data = DataProcessor.resample(daily_data, 'D', 'ME', method='ohlc')
         """
         # 确保数据有时间索引
         if not isinstance(data.index, pd.DatetimeIndex):
-            raise ValueError("输入数据必须有DatetimeIndex类型的索引")
+            raise ValueError("输入数据必须具有DatetimeIndex类型的索引")
         
-        # 创建一个数据副本
         df = data.copy()
+        
+        # 处理目标频率，将'M'替换为'ME'（月末标识）
+        if target_freq == 'M':
+            target_freq = 'ME'  # 使用月末标识替代已弃用的月度标识
         
         # 根据方法进行重采样
         if method.lower() == 'ohlc':
-            # 检查必要的列是否存在
+            # 检查是否有必要的列
             required_cols = ['open', 'high', 'low', 'close', 'volume']
-            lowercase_cols = [col.lower() for col in df.columns]
-            
-            if not all(col in lowercase_cols for col in required_cols):
-                # 尝试使用首字母大写的列名
-                capitals = ['Open', 'High', 'Low', 'Close', 'Volume']
-                if all(col in df.columns for col in capitals):
-                    # 转换列名为小写
+            if all(col.lower() in map(str.lower, df.columns) for col in required_cols):
+                # 确保列名小写
+                if not all(col in df.columns for col in required_cols):
                     df.columns = [col.lower() for col in df.columns]
-                else:
-                    raise ValueError(f"OHLC重采样方法要求数据包含这些列: {required_cols}")
-            
+            else:
+                raise ValueError(f"OHLC重采样方法要求数据包含这些列: {required_cols}")
+        
             # 执行OHLC重采样
             resampled = pd.DataFrame()
             resampled['open'] = df['open'].resample(target_freq).first()
