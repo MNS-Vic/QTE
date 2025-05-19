@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import json
+import re
 
 # 设置日志
 logger = logging.getLogger("DataCache")
@@ -221,6 +222,10 @@ class DataCache:
         """
         count = 0
         
+        # 如果是单个具体键名且不含通配符，标准化它
+        if pattern is not None and '*' not in pattern:
+            pattern = self._normalize_key(pattern)
+        
         # 清除内存缓存
         if pattern is None:
             # 清除所有内存缓存
@@ -228,7 +233,6 @@ class DataCache:
             self._memory_cache.clear()
         else:
             # 清除匹配模式的内存缓存
-            pattern = self._normalize_key(pattern)
             keys_to_remove = []
             
             for key in self._memory_cache:
@@ -246,9 +250,18 @@ class DataCache:
                 file_path = os.path.join(self._cache_dir, filename)
                 
                 if os.path.isfile(file_path):
-                    if pattern is None or self._match_pattern(filename, pattern):
-                        os.remove(file_path)
-                        count += 1
+                    # 检查是否是缓存文件
+                    if filename.endswith('.cache'):
+                        # 对于具体键名，获取对应的磁盘路径
+                        if pattern is not None and '*' not in pattern:
+                            disk_path = self._get_disk_path(pattern)
+                            if os.path.basename(disk_path) == filename:
+                                os.remove(file_path)
+                                count += 1
+                        # 对于模式匹配
+                        elif pattern is None or self._match_pattern(self._normalize_key(filename), pattern):
+                            os.remove(file_path)
+                            count += 1
         except Exception as e:
             logger.warning(f"清除磁盘缓存时发生错误: {e}")
         
@@ -268,7 +281,7 @@ class DataCache:
         --------
         >>> cache = DataCache()
         >>> cache.stats()
-        {'memory_items': 10, 'disk_size_mb': 50.5, 'disk_items': 100}
+        {'memory_cache_items': 10, 'disk_cache_size_mb': 50.5, 'disk_cache_items': 100}
         """
         # 计算磁盘缓存大小和项数
         disk_size = 0
@@ -286,16 +299,19 @@ class DataCache:
         
         # 返回统计信息
         return {
-            'memory_items': len(self._memory_cache),
+            'memory_cache_items': len(self._memory_cache),
             'max_memory_items': self._max_memory_items,
-            'disk_size_mb': disk_size / (1024 * 1024),
+            'disk_cache_size_mb': disk_size / (1024 * 1024),
             'max_disk_size_mb': self._max_disk_size / (1024 * 1024),
-            'disk_items': disk_items
+            'disk_cache_items': disk_items
         }
     
     def _normalize_key(self, key: str) -> str:
         """标准化缓存键名"""
-        return key.replace(' ', '_').replace('/', '_').replace('\\', '_')
+        # 替换特殊字符为下划线
+        for char in [' ', '/', '\\', ':', '?', '*', '<', '>', '|', '"']: 
+            key = key.replace(char, '_')
+        return key
     
     def _get_disk_path(self, key: str) -> str:
         """获取磁盘缓存文件路径"""
@@ -408,35 +424,44 @@ class DataCache:
         if pattern == '*':
             return True
             
-        parts = pattern.split('*')
-        if len(parts) == 1:  # 没有通配符，精确匹配
+        if '*' not in pattern:
+            # 没有通配符，精确匹配
             return key == pattern
+        
+        # 转换为正则表达式
+        regex_pattern = pattern.replace('.', '\\.').replace('*', '.*')
+        return re.match(f"^{regex_pattern}$", key) is not None
             
-        # 处理开头和结尾的通配符
-        if pattern.startswith('*'):
-            parts = parts[1:]  # 忽略空字符串
-        else:
-            if not key.startswith(parts[0]):
-                return False
-            parts = parts[1:]
-            
-        if pattern.endswith('*'):
-            parts = parts[:-1]  # 忽略空字符串
-        else:
-            if not key.endswith(parts[-1]):
-                return False
-            parts = parts[:-1]
-            
-        # 处理中间的通配符
-        pos = 0
-        for part in parts:
-            if part == '':
-                continue
+    def __contains__(self, key: str) -> bool:
+        """实现'in'操作符，检查缓存是否包含指定键名
+        
+        Examples
+        --------
+        >>> cache = DataCache()
+        >>> cache.set("test_key", "test_value")
+        >>> "test_key" in cache
+        True
+        """
+        # 标准化键名
+        key = self._normalize_key(key)
+        
+        # 先检查内存缓存
+        if key in self._memory_cache:
+            value, expire_time, _ = self._memory_cache[key]
+            # 检查是否过期
+            if expire_time > time.time():
+                return True
                 
-            new_pos = key.find(part, pos)
-            if new_pos == -1:
-                return False
+        # 再检查磁盘缓存
+        disk_path = self._get_disk_path(key)
+        if os.path.exists(disk_path):
+            try:
+                with open(disk_path, "rb") as f:
+                    cache_data = pickle.load(f)
+                # 检查是否过期
+                if cache_data["expire_time"] > time.time():
+                    return True
+            except Exception:
+                pass
                 
-            pos = new_pos + len(part)
-            
-        return True
+        return False
