@@ -318,3 +318,264 @@ class TestWebSocketServer:
         assert second_response["id"] == subscribe_id
         assert second_response["result"] == "success"
         assert second_response["streams"] == streams
+        
+    @pytest.mark.asyncio
+    async def test_unsubscribe_user_data(self, setup_server):
+        """测试取消用户数据订阅"""
+        # 模拟WebSocket连接
+        mock_websocket = MagicMock()
+        mock_websocket.send = AsyncMock()
+        
+        # 设置已认证的客户端和已订阅的流
+        subscription_key = f"{self.test_user_id}@account"
+        self.server.clients[mock_websocket] = {
+            "connected_at": time.time(),
+            "user_id": self.test_user_id,
+            "subscriptions": set([subscription_key])
+        }
+        
+        # 设置已有的用户订阅
+        self.server.user_subscriptions[subscription_key] = set([mock_websocket])
+        
+        # 构造取消订阅参数
+        streams = [subscription_key]
+        unsubscribe_params = {"streams": streams}
+        unsubscribe_id = "unsubscribe_request"
+        
+        # 调用取消订阅方法
+        await self.server._handle_unsubscribe(mock_websocket, unsubscribe_params, unsubscribe_id)
+        
+        # 验证订阅已被取消
+        assert subscription_key not in self.server.clients[mock_websocket]["subscriptions"]
+        assert subscription_key not in self.server.user_subscriptions
+        
+        # 验证响应
+        mock_websocket.send.assert_called_once()
+        response_json = json.loads(mock_websocket.send.call_args[0][0])
+        assert response_json["id"] == unsubscribe_id
+        assert response_json["result"] == "success"
+        
+    @pytest.mark.asyncio
+    async def test_unsubscribe_all_streams(self, setup_server):
+        """测试取消所有订阅"""
+        # 模拟WebSocket连接
+        mock_websocket = MagicMock()
+        mock_websocket.send = AsyncMock()
+        
+        # 设置已认证的客户端和多个已订阅的流
+        market_key = "BTCUSDT@trade"
+        user_key = f"{self.test_user_id}@account"
+        self.server.clients[mock_websocket] = {
+            "connected_at": time.time(),
+            "user_id": self.test_user_id,
+            "subscriptions": set([market_key, user_key])
+        }
+        
+        # 设置已有的市场和用户订阅
+        self.server.market_subscriptions[market_key] = set([mock_websocket])
+        self.server.user_subscriptions[user_key] = set([mock_websocket])
+        
+        # 构造取消所有订阅参数（不指定streams）
+        unsubscribe_params = {}
+        unsubscribe_id = "unsubscribe_all_request"
+        
+        # 调用取消订阅方法
+        await self.server._handle_unsubscribe(mock_websocket, unsubscribe_params, unsubscribe_id)
+        
+        # 验证所有订阅都已被取消
+        assert len(self.server.clients[mock_websocket]["subscriptions"]) == 0
+        assert mock_websocket not in self.server.market_subscriptions.get(market_key, set())
+        assert mock_websocket not in self.server.user_subscriptions.get(user_key, set())
+        
+        # 验证响应
+        mock_websocket.send.assert_called_once()
+        response_json = json.loads(mock_websocket.send.call_args[0][0])
+        assert response_json["id"] == unsubscribe_id
+        assert response_json["result"] == "success"
+        
+    @pytest.mark.asyncio
+    async def test_broadcast_market_data(self, setup_server):
+        """测试市场数据广播"""
+        # 模拟多个WebSocket连接
+        mock_websocket1 = MagicMock()
+        mock_websocket1.send = AsyncMock()
+        mock_websocket1.remote_address = ("127.0.0.1", 8000)
+        
+        mock_websocket2 = MagicMock()
+        mock_websocket2.send = AsyncMock()
+        mock_websocket2.remote_address = ("127.0.0.1", 8001)
+        
+        mock_websocket3 = MagicMock()
+        mock_websocket3.send = AsyncMock()
+        mock_websocket3.remote_address = ("127.0.0.1", 8002)
+        
+        # 设置客户端信息
+        self.server.clients[mock_websocket1] = {"connected_at": time.time(), "user_id": None, "subscriptions": set(["BTCUSDT@trade"])}
+        self.server.clients[mock_websocket2] = {"connected_at": time.time(), "user_id": None, "subscriptions": set(["BTCUSDT@trade"])}
+        self.server.clients[mock_websocket3] = {"connected_at": time.time(), "user_id": None, "subscriptions": set(["ETHUSDT@trade"])}
+        
+        # 设置市场订阅
+        self.server.market_subscriptions["BTCUSDT@trade"] = set([mock_websocket1, mock_websocket2])
+        self.server.market_subscriptions["ETHUSDT@trade"] = set([mock_websocket3])
+        
+        # 创建市场数据消息
+        market_message = {
+            "stream": "BTCUSDT@trade",
+            "data": {
+                "e": "trade",
+                "E": 1589437618213,
+                "s": "BTCUSDT",
+                "t": 1234567,
+                "p": "9000.00",
+                "q": "1.5",
+                "b": 123456,
+                "a": 123457,
+                "T": 1589437618200,
+                "m": False
+            }
+        }
+        
+        # 广播消息
+        await self.server._broadcast_to_market_subscribers("BTCUSDT@trade", market_message)
+        
+        # 验证只有订阅了BTCUSDT交易流的客户端收到消息
+        mock_websocket1.send.assert_called_once_with(json.dumps(market_message))
+        mock_websocket2.send.assert_called_once_with(json.dumps(market_message))
+        mock_websocket3.send.assert_not_called()
+        
+    @pytest.mark.asyncio
+    async def test_broadcast_user_data(self, setup_server):
+        """测试用户数据广播"""
+        # 模拟多个WebSocket连接
+        mock_websocket1 = MagicMock()
+        mock_websocket1.send = AsyncMock()
+        mock_websocket1.remote_address = ("127.0.0.1", 8000)
+        
+        mock_websocket2 = MagicMock()
+        mock_websocket2.send = AsyncMock()
+        mock_websocket2.remote_address = ("127.0.0.1", 8001)
+        
+        # 设置客户端信息
+        self.server.clients[mock_websocket1] = {
+            "connected_at": time.time(), 
+            "user_id": "user1", 
+            "subscriptions": set(["user1@account"])
+        }
+        self.server.clients[mock_websocket2] = {
+            "connected_at": time.time(), 
+            "user_id": "user2", 
+            "subscriptions": set(["user2@account"])
+        }
+        
+        # 设置用户订阅
+        self.server.user_subscriptions["user1@account"] = set([mock_websocket1])
+        self.server.user_subscriptions["user2@account"] = set([mock_websocket2])
+        
+        # 创建用户数据消息
+        user_message = {
+            "stream": "user1@account",
+            "data": {
+                "e": "outboundAccountPosition",
+                "E": 1589437618213,
+                "u": 1589437618213,
+                "B": [
+                    {
+                        "a": "BTC",
+                        "f": "1.0",
+                        "l": "0.5"
+                    },
+                    {
+                        "a": "USDT",
+                        "f": "10000.0",
+                        "l": "0.0"
+                    }
+                ]
+            }
+        }
+        
+        # 广播消息
+        await self.server._broadcast_to_user_subscribers("user1@account", user_message)
+        
+        # 验证只有user1收到消息，user2没收到
+        mock_websocket1.send.assert_called_once_with(json.dumps(user_message))
+        mock_websocket2.send.assert_not_called()
+        
+    @pytest.mark.asyncio
+    async def test_broadcast_exception_handling(self, setup_server):
+        """测试广播时的异常处理"""
+        # 模拟WebSocket连接
+        mock_websocket = MagicMock()
+        mock_websocket.send = AsyncMock(side_effect=Exception("Connection lost"))
+        mock_websocket.remote_address = ("127.0.0.1", 8000)
+        
+        # 设置客户端信息和订阅
+        self.server.clients[mock_websocket] = {
+            "connected_at": time.time(), 
+            "user_id": None, 
+            "subscriptions": set(["BTCUSDT@trade"])
+        }
+        self.server.market_subscriptions["BTCUSDT@trade"] = set([mock_websocket])
+        
+        # 创建市场数据消息
+        market_message = {
+            "stream": "BTCUSDT@trade",
+            "data": {
+                "e": "trade",
+                "E": 1589437618213,
+                "s": "BTCUSDT",
+                "t": 1234567,
+                "p": "9000.00",
+                "q": "1.5",
+                "b": 123456,
+                "a": 123457,
+                "T": 1589437618200,
+                "m": False
+            }
+        }
+        
+        # 广播消息 - 应该捕获异常而不是失败
+        await self.server._broadcast_to_market_subscribers("BTCUSDT@trade", market_message)
+        
+        # 验证send被调用，但抛出了异常
+        mock_websocket.send.assert_called_once_with(json.dumps(market_message))
+        # 注意：连接错误会在下一次客户端交互时清理，而不是立即清理
+        
+    @pytest.mark.asyncio
+    async def test_client_disconnect(self, setup_server):
+        """测试客户端断开连接处理"""
+        # 模拟WebSocket连接
+        mock_websocket = MagicMock()
+        mock_websocket.remote_address = ("127.0.0.1", 8000)
+        
+        # 设置多个订阅
+        market_key1 = "BTCUSDT@trade"
+        market_key2 = "BTCUSDT@depth"
+        user_key = f"{self.test_user_id}@account"
+        
+        # 设置客户端信息
+        self.server.clients[mock_websocket] = {
+            "connected_at": time.time(),
+            "user_id": self.test_user_id,
+            "subscriptions": set([market_key1, market_key2, user_key])
+        }
+        
+        # 设置订阅关系
+        self.server.market_subscriptions[market_key1] = set([mock_websocket])
+        self.server.market_subscriptions[market_key2] = set([mock_websocket])
+        self.server.user_subscriptions[user_key] = set([mock_websocket])
+        
+        # 添加其他客户端到同一个订阅
+        mock_websocket2 = MagicMock()
+        self.server.market_subscriptions[market_key1].add(mock_websocket2)
+        
+        # 调用清理方法
+        await self.server._cleanup_client(mock_websocket)
+        
+        # 验证客户端信息被删除
+        assert mock_websocket not in self.server.clients
+        
+        # 验证订阅关系被清理
+        assert mock_websocket not in self.server.market_subscriptions[market_key1]
+        assert mock_websocket2 in self.server.market_subscriptions[market_key1]  # 其他客户端不受影响
+        assert market_key2 not in self.server.market_subscriptions  # 空订阅被删除
+        assert user_key not in self.server.user_subscriptions  # 空订阅被删除
