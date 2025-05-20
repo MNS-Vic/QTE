@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 QTE REST API模块
 
@@ -5,7 +7,10 @@ QTE REST API模块
 """
 
 from qte.exchange.rest_api.rest_server import ExchangeRESTServer
+from qte.exchange.rest_api.request_validator import RequestValidator
+from qte.exchange.rest_api.error_codes import *
 
 __all__ = [
-    'ExchangeRESTServer'
+    'ExchangeRESTServer',
+    'RequestValidator'
 ]

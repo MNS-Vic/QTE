@@ -16,6 +16,9 @@ from werkzeug.serving import make_server
 # 导入匹配引擎和账户管理器
 from qte.exchange.matching.matching_engine import MatchingEngine, Order, OrderSide, OrderType, OrderStatus
 from qte.exchange.account.account_manager import AccountManager
+from qte.exchange.rest_api.request_validator import RequestValidator
+# 导入所有错误码
+from qte.exchange.rest_api.error_codes import *
 
 logger = logging.getLogger("RESTServer")
 handler = logging.StreamHandler()
@@ -63,7 +66,34 @@ class ExchangeRESTServer:
     
     def _register_routes(self) -> None:
         """注册API路由"""
-        # 市场数据接口
+        # 市场数据接口 - 公共API，无需认证
+        # v3 API路由
+        self.app.route('/api/v3/ping', methods=['GET'])(self._ping)
+        self.app.route('/api/v3/time', methods=['GET'])(self._server_time)
+        self.app.route('/api/v3/ticker/price', methods=['GET'])(self._ticker_price)
+        self.app.route('/api/v3/ticker/24hr', methods=['GET'])(self._ticker_24hr)
+        self.app.route('/api/v3/depth', methods=['GET'])(self._order_book)
+        self.app.route('/api/v3/trades', methods=['GET'])(self._recent_trades)
+        self.app.route('/api/v3/klines', methods=['GET'])(self._klines)
+        self.app.route('/api/v3/avgPrice', methods=['GET'])(self._avg_price)
+        
+        # 交易接口 - 需要认证
+        self.app.route('/api/v3/order', methods=['POST'])(self._create_order)
+        self.app.route('/api/v3/order', methods=['DELETE'])(self._cancel_order)
+        self.app.route('/api/v3/order', methods=['GET'])(self._get_order)
+        self.app.route('/api/v3/openOrders', methods=['GET'])(self._get_open_orders)
+        self.app.route('/api/v3/allOrders', methods=['GET'])(self._get_all_orders)
+        
+        # 账户接口 - 需要认证
+        self.app.route('/api/v3/account', methods=['GET'])(self._get_account)
+        self.app.route('/api/v3/myTrades', methods=['GET'])(self._get_my_trades)
+        self.app.route('/api/v3/account/commission', methods=['GET'])(self._get_commission)
+        
+        # 测试接口 - 需要认证
+        self.app.route('/api/v3/deposit', methods=['POST'])(self._deposit)
+        self.app.route('/api/v3/withdraw', methods=['POST'])(self._withdraw)
+        
+        # 保持向后兼容性的v1 API路由
         self.app.route('/api/v1/ping', methods=['GET'])(self._ping)
         self.app.route('/api/v1/time', methods=['GET'])(self._server_time)
         self.app.route('/api/v1/ticker/price', methods=['GET'])(self._ticker_price)
@@ -72,18 +102,15 @@ class ExchangeRESTServer:
         self.app.route('/api/v1/trades', methods=['GET'])(self._recent_trades)
         self.app.route('/api/v1/klines', methods=['GET'])(self._klines)
         
-        # 交易接口
         self.app.route('/api/v1/order', methods=['POST'])(self._create_order)
         self.app.route('/api/v1/order', methods=['DELETE'])(self._cancel_order)
         self.app.route('/api/v1/order', methods=['GET'])(self._get_order)
         self.app.route('/api/v1/openOrders', methods=['GET'])(self._get_open_orders)
         self.app.route('/api/v1/allOrders', methods=['GET'])(self._get_all_orders)
         
-        # 账户接口
         self.app.route('/api/v1/account', methods=['GET'])(self._get_account)
         self.app.route('/api/v1/myTrades', methods=['GET'])(self._get_my_trades)
         
-        # 测试接口
         self.app.route('/api/v1/deposit', methods=['POST'])(self._deposit)
         self.app.route('/api/v1/withdraw', methods=['POST'])(self._withdraw)
     
@@ -173,38 +200,65 @@ class ExchangeRESTServer:
         """
         return self.api_keys.get(api_key)
     
-    def _authenticate(self) -> Optional[str]:
+    def _authenticate(self, api_key=None) -> Optional[str]:
         """
-        验证API密钥并返回用户ID
+        API认证
         
+        Parameters
+        ----------
+        api_key : str, optional
+            API密钥，如不提供则从请求头获取, by default None
+            
         Returns
         -------
         Optional[str]
             用户ID，认证失败返回None
         """
-        api_key = request.headers.get('X-API-KEY')
+        api_key = api_key or request.headers.get('X-API-KEY')
         if not api_key:
+            logger.warning("认证失败: 未提供API密钥")
             return None
             
-        return self.get_user_id_from_api_key(api_key)
+        # 验证API密钥
+        try:
+            user_id = self.get_user_id_from_api_key(api_key)
+            if not user_id:
+                logger.warning(f"认证失败: 无效的API密钥 {api_key[:8]}...")
+                return None
+                
+            logger.debug(f"认证成功: 用户 {user_id}")
+            return user_id
+            
+        except Exception as e:
+            logger.error(f"认证过程出错: {e}")
+            return None
     
-    def _error_response(self, message: str, status_code: int = 400) -> Response:
+    def _error_response(self, message: str, error_code: int = -1000, status_code: int = 400) -> Response:
         """
-        生成错误响应
+        生成错误响应，格式与币安API保持一致
         
         Parameters
         ----------
         message : str
-            错误信息
+            错误消息
+        error_code : int, optional
+            币安错误码, by default -1000
         status_code : int, optional
             HTTP状态码, by default 400
             
         Returns
         -------
         Response
-            错误响应
+            Flask响应对象
         """
-        return jsonify({"error": message}), status_code
+        error_response = {
+            "code": error_code,
+            "msg": message
+        }
+        
+        response = jsonify(error_response)
+        response.status_code = status_code
+        return response
     
     # 市场数据接口实现
     def _ping(self) -> Response:
@@ -353,12 +407,32 @@ class ExchangeRESTServer:
         """创建订单"""
         user_id = self._authenticate()
         if not user_id:
-            return self._error_response("未认证", 401)
+            return self._error_response("API-key required", error_code=INVALID_API_KEY_ORDER, status_code=401)
             
-        # 获取请求参数
-        data = request.json
+        # 获取请求参数 - 支持不同的内容类型
+        data = {}
+        if request.content_type == 'application/json' and request.json:
+            data = request.json
+        elif request.form:
+            data = request.form.to_dict()
+        elif request.args:
+            data = request.args.to_dict()
+        
         if not data:
-            return self._error_response("无效的请求数据")
+            return self._error_response("Missing request data", error_code=INVALID_PARAM, status_code=400)
+        
+        # 验证时间戳参数
+        timestamp = data.get('timestamp')
+        if timestamp:
+            is_valid, error_msg, error_code = RequestValidator.validate_timestamp(timestamp)
+            if not is_valid:
+                return self._error_response(error_msg, error_code=error_code, status_code=400)
+        
+        # 使用请求验证器进行参数验证
+        is_valid, error_msg = RequestValidator.validate_order_request(data)
+        if not is_valid:
+            # 返回400状态码和错误信息
+            return self._error_response(error_msg or "Invalid request parameters", error_code=INVALID_PARAM, status_code=400)
             
         symbol = data.get('symbol')
         side = data.get('side')
@@ -366,27 +440,11 @@ class ExchangeRESTServer:
         quantity = data.get('quantity')
         price = data.get('price')
         client_order_id = data.get('newClientOrderId')
-        
-        # 参数验证
-        if not symbol or not side or not type or not quantity:
-            return self._error_response("缺少必要参数")
             
         try:
             # 转换参数
             quantity = Decimal(str(quantity))
             price = Decimal(str(price)) if price else None
-            
-            # 验证订单类型
-            if type.upper() not in ['LIMIT', 'MARKET']:
-                return self._error_response(f"不支持的订单类型: {type}")
-                
-            # 验证订单方向
-            if side.upper() not in ['BUY', 'SELL']:
-                return self._error_response(f"不支持的订单方向: {side}")
-                
-            # 市价单必须有价格
-            if type.upper() == 'LIMIT' and price is None:
-                return self._error_response("限价单必须指定价格")
                 
             # 锁定资金
             if not self.account_manager.lock_funds_for_order(
@@ -396,177 +454,147 @@ class ExchangeRESTServer:
                 amount=quantity,
                 price=price
             ):
-                return self._error_response("资金不足")
+                return self._error_response("资金不足", 400)
                 
-            # 创建订单
-            order = Order(
-                order_id=str(uuid.uuid4()),
-                symbol=symbol,
-                side=OrderSide.BUY if side.upper() == 'BUY' else OrderSide.SELL,
-                order_type=OrderType.LIMIT if type.upper() == 'LIMIT' else OrderType.MARKET,
-                quantity=float(quantity),
-                price=float(price) if price else None,
-                user_id=user_id,
-                client_order_id=client_order_id
-            )
-            
-            # 提交订单到撮合引擎
-            trades = self.matching_engine.place_order(order)
-            
-            # 处理成交
-            for trade in trades:
-                # 获取买卖双方订单
-                buy_order = self.matching_engine.get_order_book(symbol).get_order(trade.buy_order_id) or order
-                sell_order = self.matching_engine.get_order_book(symbol).get_order(trade.sell_order_id) or order
+            try:
+                # 创建订单
+                order = Order(
+                    order_id=client_order_id or str(uuid.uuid4()),
+                    symbol=symbol,
+                    side=OrderSide.BUY if side.upper() == 'BUY' else OrderSide.SELL,
+                    order_type=OrderType.LIMIT if type.upper() == 'LIMIT' else OrderType.MARKET,
+                    quantity=quantity,
+                    price=price,
+                    timestamp=time.time(),
+                    user_id=user_id,
+                    client_order_id=client_order_id
+                )
                 
-                # 结算买方账户
-                if buy_order.user_id:
-                    self.account_manager.settle_trade(
-                        user_id=buy_order.user_id,
+                # 下单
+                success = self.matching_engine.place_order(order)
+                
+                if not success:
+                    # 解锁资金
+                    self.account_manager.unlock_funds_for_order(
+                        user_id=user_id,
                         symbol=symbol,
-                        side="BUY",
-                        amount=Decimal(str(trade.quantity)),
-                        price=Decimal(str(trade.price))
+                        side=side,
+                        amount=quantity,
+                        price=price
                     )
+                    return self._error_response("下单失败")
                     
-                # 结算卖方账户
-                if sell_order.user_id:
-                    self.account_manager.settle_trade(
-                        user_id=sell_order.user_id,
+                # 返回订单信息
+                result = order.to_dict()
+                return jsonify(result)
+                
+            except Exception as e:
+                # 发生异常时，解锁已锁定的资金
+                try:
+                    self.account_manager.unlock_funds_for_order(
+                        user_id=user_id,
                         symbol=symbol,
-                        side="SELL",
-                        amount=Decimal(str(trade.quantity)),
-                        price=Decimal(str(trade.price))
+                        side=side,
+                        amount=quantity,
+                        price=price
                     )
-            
-            # 构建响应
-            result = {
-                "symbol": symbol,
-                "orderId": order.order_id,
-                "clientOrderId": client_order_id,
-                "transactTime": int(time.time() * 1000),
-                "price": str(price) if price else "0",
-                "origQty": str(quantity),
-                "executedQty": str(order.filled_quantity),
-                "status": order.status.value,
-                "type": type.upper(),
-                "side": side.upper()
-            }
-            
-            return jsonify(result)
+                except Exception as unlock_e:
+                    logger.error("解锁资金失败")
+                    logger.error(f"解锁资金异常详情: {unlock_e}")
+                
+                # 重新抛出原始异常让外层catch处理
+                raise
             
         except Exception as e:
             logger.error(f"创建订单失败: {e}")
             return self._error_response(f"创建订单失败: {str(e)}")
     
     def _cancel_order(self) -> Response:
-        """取消订单"""
+        """
+        取消订单
+        
+        Returns
+        -------
+        Response
+            操作结果
+        """
+        # 用户认证
         user_id = self._authenticate()
         if not user_id:
             return self._error_response("未认证", 401)
             
-        # 获取请求参数
+        # 从查询参数中获取参数（适用于DELETE请求）
         symbol = request.args.get('symbol')
         order_id = request.args.get('orderId')
-        client_order_id = request.args.get('origClientOrderId')
         
-        if not symbol or (not order_id and not client_order_id):
-            return self._error_response("缺少必要参数")
+        # 参数验证
+        if not symbol:
+            return self._error_response("缺少参数: symbol", 400)
+        if not order_id:
+            return self._error_response("缺少参数: orderId", 400)
             
-        # 获取订单簿
-        order_book = self.matching_engine.get_order_book(symbol)
-        
-        # 查找订单
-        order = None
-        if order_id:
-            order = order_book.get_order(order_id)
-        elif client_order_id:
-            # 搜索具有指定客户端ID的订单
-            for o in order_book.order_map.values():
-                if o.client_order_id == client_order_id and o.user_id == user_id:
-                    order = o
-                    break
+        # 尝试取消订单
+        try:
+            success = self.matching_engine.cancel_order(symbol, order_id)
+            if not success:
+                return self._error_response(f"取消订单失败: 订单不存在或已完成", 404)
+                
+            # 解锁资金
+            order = self.matching_engine.get_order(symbol, order_id)
+            if order and order.status == OrderStatus.CANCELED:
+                if order.side == OrderSide.BUY:
+                    # 买单解锁quote资产
+                    locked_amount = order.price * order.remaining_quantity
+                    self.account_manager.unlock_asset(
+                        user_id=user_id,
+                        asset=symbol.split('/')[-1] if '/' in symbol else symbol[3:],  # 假设格式为BTC/USDT或BTCUSDT
+                        amount=Decimal(str(locked_amount))
+                    )
+                else:
+                    # 卖单解锁base资产
+                    self.account_manager.unlock_asset(
+                        user_id=user_id,
+                        asset=symbol.split('/')[0] if '/' in symbol else symbol[:3],  # 假设格式为BTC/USDT或BTCUSDT
+                        amount=Decimal(str(order.remaining_quantity))
+                    )
                     
-        if not order:
-            return self._error_response("订单不存在", 404)
-            
-        # 验证所有权
-        if order.user_id != user_id:
-            return self._error_response("无权操作此订单", 403)
-            
-        # 解锁资金
-        self.account_manager.unlock_funds_for_order(
-            user_id=user_id,
-            symbol=symbol,
-            side="BUY" if order.side == OrderSide.BUY else "SELL",
-            amount=Decimal(str(order.remaining_quantity)),
-            price=Decimal(str(order.price)) if order.price else None
-        )
-        
-        # 取消订单
-        success = self.matching_engine.cancel_order(order.order_id, symbol)
-        
-        if success:
-            result = {
+            return jsonify({
                 "symbol": symbol,
-                "orderId": order.order_id,
-                "clientOrderId": order.client_order_id,
-                "status": "CANCELED"
-            }
-            return jsonify(result)
-        else:
-            return self._error_response("取消订单失败")
+                "orderId": order_id,
+                "status": "CANCELED",
+                "success": True
+            })
+            
+        except Exception as e:
+            logger.error(f"取消订单异常: {e}")
+            return self._error_response(f"取消订单失败: {str(e)}", 500)
     
     def _get_order(self) -> Response:
         """查询订单"""
+        # 验证身份
         user_id = self._authenticate()
         if not user_id:
             return self._error_response("未认证", 401)
             
         # 获取请求参数
-        symbol = request.args.get('symbol')
-        order_id = request.args.get('orderId')
-        client_order_id = request.args.get('origClientOrderId')
+        data = request.args.to_dict()
         
-        if not symbol or (not order_id and not client_order_id):
-            return self._error_response("缺少必要参数")
+        # 验证参数
+        is_valid, error_msg = RequestValidator.validate_query_request(data)
+        if not is_valid:
+            return self._error_response(error_msg, 400)
             
-        # 获取订单簿
-        order_book = self.matching_engine.get_order_book(symbol)
+        symbol = data.get('symbol')
+        order_id = data.get('orderId')
         
-        # 查找订单
-        order = None
-        if order_id:
-            order = order_book.get_order(order_id)
-        elif client_order_id:
-            # 搜索具有指定客户端ID的订单
-            for o in order_book.order_map.values():
-                if o.client_order_id == client_order_id and o.user_id == user_id:
-                    order = o
-                    break
-                    
+        # 查询订单
+        order = self.matching_engine.get_order(user_id, symbol, order_id)
+        
         if not order:
-            return self._error_response("订单不存在", 404)
+            return jsonify({"error": "订单不存在"}), 404
             
-        # 验证所有权
-        if order.user_id != user_id:
-            return self._error_response("无权查看此订单", 403)
-            
-        # 构建响应
-        result = {
-            "symbol": order.symbol,
-            "orderId": order.order_id,
-            "clientOrderId": order.client_order_id,
-            "price": str(order.price) if order.price else "0",
-            "origQty": str(order.quantity),
-            "executedQty": str(order.filled_quantity),
-            "status": order.status.value,
-            "type": order.order_type.value,
-            "side": order.side.value,
-            "time": int(order.timestamp * 1000)
-        }
-        
-        return jsonify(result)
+        # 返回结果
+        return jsonify(order.to_dict())
     
     def _get_open_orders(self) -> Response:
         """查询当前挂单"""
@@ -612,29 +640,82 @@ class ExchangeRESTServer:
     
     # 账户接口实现
     def _get_account(self) -> Response:
-        """查询账户信息"""
-        user_id = self._authenticate()
-        if not user_id:
-            return self._error_response("未认证", 401)
+        """获取账户信息"""
+        api_key = request.headers.get('X-API-KEY')
+        if not api_key:
+            return self._error_response("API-key is required", error_code=INVALID_API_KEY_ORDER, status_code=401)
             
+        try:
+            # 验证API密钥格式
+            import uuid
+            uuid_obj = uuid.UUID(api_key)
+        except ValueError:
+            return self._error_response("Invalid API-key", error_code=INVALID_API_KEY_ORDER, status_code=401)
+            
+        user_id = self._authenticate(api_key)
+        if not user_id:
+            return self._error_response("Invalid API-key, IP, or permissions", error_code=INVALID_API_KEY_ORDER, status_code=401)
+            
+        # 处理新参数 omitZeroBalances (2024-04-02更新)
+        omit_zero_balances = request.args.get('omitZeroBalances', 'false').lower() == 'true'
+            
+        # 获取账户
         account = self.account_manager.get_account(user_id)
         if not account:
-            return self._error_response("账户不存在", 404)
-            
-        # 构建响应
-        balances = []
-        for asset, balance in account.balances.items():
-            balances.append({
-                "asset": asset,
-                "free": str(balance.free),
-                "locked": str(balance.locked)
+            # 账户不存在时，返回空余额
+            return jsonify({
+                "makerCommission": 10,
+                "takerCommission": 10,
+                "buyerCommission": 0,
+                "sellerCommission": 0,
+                "canTrade": True,
+                "canWithdraw": True,
+                "canDeposit": True,
+                "preventSor": False,
+                "uid": user_id,
+                "updateTime": int(time.time() * 1000),
+                "accountType": "SPOT",
+                "balances": [],
+                "permissions": ["SPOT"]
             })
             
+        # 获取账户快照
+        snapshot = account.get_account_snapshot()
+        
+        # 构建响应
         result = {
-            "accountId": user_id,
-            "balances": balances
+            "makerCommission": 10,
+            "takerCommission": 10,
+            "buyerCommission": 0,
+            "sellerCommission": 0,
+            "canTrade": True,
+            "canWithdraw": True,
+            "canDeposit": True,
+            "brokered": False,
+            "requireSelfTradePrevention": False,
+            "preventSor": False,  # 根据2023-07-11更新添加
+            "uid": user_id,       # 根据2023-07-11更新添加
+            "updateTime": int(time.time() * 1000),
+            "accountType": "SPOT",
+            "balances": [],
+            "permissions": ["SPOT"]
         }
         
+        # 添加余额，考虑omitZeroBalances参数
+        for asset, balance in snapshot["balances"].items():
+            free = Decimal(str(balance["free"]))
+            locked = Decimal(str(balance["locked"]))
+            
+            # 如果启用了omitZeroBalances，跳过零余额资产
+            if omit_zero_balances and free == 0 and locked == 0:
+                continue
+                
+            result["balances"].append({
+                "asset": asset,
+                "free": str(free),
+                "locked": str(locked)
+            })
+            
         return jsonify(result)
     
     def _get_my_trades(self) -> Response:
@@ -739,3 +820,73 @@ class ExchangeRESTServer:
         except Exception as e:
             logger.error(f"提现失败: {e}")
             return self._error_response(f"提现失败: {str(e)}")
+    
+    def _avg_price(self) -> Response:
+        """
+        获取当前平均价格
+        
+        Returns
+        -------
+        Response
+            当前平均价格响应
+        """
+        from qte.exchange.rest_api.error_codes import UNKNOWN_SYMBOL
+        
+        symbol = request.args.get('symbol')
+        
+        if not symbol:
+            # 需要提供交易对
+            return self._error_response("Parameter 'symbol' was empty.", error_code=-1102, status_code=400)
+            
+        # 获取当前价格
+        price = self.matching_engine.get_market_price(symbol)
+        if price is None:
+            return self._error_response(f"Invalid symbol {symbol}", error_code=UNKNOWN_SYMBOL, status_code=400)
+            
+        # 币安API中closeTime表示最后交易时间，这里简化为当前时间
+        current_time = int(time.time() * 1000)
+        
+        result = {
+            "mins": 5,  # 默认5分钟平均价
+            "price": str(price),
+            "closeTime": current_time  # 根据2023-12-04更新添加
+        }
+        
+        return jsonify(result)
+    
+    def _get_commission(self) -> Response:
+        """
+        获取账户佣金信息，2023-12-04新增接口
+        
+        Returns
+        -------
+        Response
+            佣金信息响应
+        """
+        user_id = self._authenticate()
+        if not user_id:
+            return self._error_response("API-key required", error_code=INVALID_API_KEY_ORDER, status_code=401)
+            
+        # 默认佣金值
+        result = {
+            "standardCommission": {
+                "maker": "0.00100000",  # 默认0.1%做市商佣金
+                "taker": "0.00100000",  # 默认0.1%接受方佣金
+                "buyer": "0.00000000",  # 默认0%买方佣金
+                "seller": "0.00000000"  # 默认0%卖方佣金
+            },
+            "taxCommission": {
+                "maker": "0.00000000",  # 默认0%做市商税
+                "taker": "0.00000000",  # 默认0%接受方税
+                "buyer": "0.00000000",  # 默认0%买方税
+                "seller": "0.00000000"  # 默认0%卖方税
+            },
+            "discount": {
+                "enabledForAccount": False,  # 账户是否启用折扣
+                "enabledForSymbol": False,  # 交易对是否启用折扣
+                "discountAsset": "",        # 折扣资产
+                "discount": "0.00000000"    # 折扣量
+            }
+        }
+        
+        return jsonify(result)

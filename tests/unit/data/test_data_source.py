@@ -241,9 +241,14 @@ class TestDataSourceFactory:
     
     def test_register_creator(self):
         """测试注册创建器函数"""
-        # 定义一个简单的创建函数
+        # 定义一个简单的创建函数 - 修改为返回一个简单对象，而不是MagicMock
         def create_test_source(**kwargs):
-            return MagicMock(**kwargs)
+            # 创建一个简单对象，正确设置所有传入的属性
+            class TestSource:
+                def __init__(self, **props):
+                    for key, value in props.items():
+                        setattr(self, key, value)
+            return TestSource(**kwargs)
         
         # 注册创建函数
         result = DataSourceFactory.register_creator('test', create_test_source)

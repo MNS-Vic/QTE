@@ -215,8 +215,7 @@ class UserAccount:
         balance.free -= amount
         balance.locked += amount
         
-        # 记录交易
-        self._add_transaction("LOCK", asset, amount, {"locked": True})
+        # 锁定资产不应产生交易记录
         
         logger.info(f"用户 {self.user_id} 锁定 {amount} {asset}, 可用: {balance.free}, 锁定: {balance.locked}")
         return True
@@ -250,8 +249,7 @@ class UserAccount:
         balance.locked -= amount
         balance.free += amount
         
-        # 记录交易
-        self._add_transaction("UNLOCK", asset, amount, {"unlocked": True})
+        # 解锁资产不应产生交易记录
         
         logger.info(f"用户 {self.user_id} 解锁 {amount} {asset}, 可用: {balance.free}, 锁定: {balance.locked}")
         return True
@@ -367,6 +365,14 @@ class UserAccount:
             # 更新持仓
             self.update_position(symbol, amount, price, True)
             
+            # 记录交易 - 买入基础资产
+            self._add_transaction("TRADE", base_asset, amount, 
+                               {"price": price, "value": trade_value, "side": "BUY", "symbol": symbol})
+            
+            # 记录交易 - 支付计价资产
+            self._add_transaction("TRADE", quote_asset, -trade_value, 
+                               {"price": price, "amount": amount, "side": "BUY", "symbol": symbol})
+            
         # 卖出: 扣除基础资产，增加计价资产
         else:
             # 检查持仓
@@ -385,6 +391,14 @@ class UserAccount:
             # 更新持仓
             self.update_position(symbol, amount, price, False)
             
+            # 记录交易 - 卖出基础资产
+            self._add_transaction("TRADE", base_asset, -amount, 
+                               {"price": price, "value": trade_value, "side": "SELL", "symbol": symbol})
+            
+            # 记录交易 - 收到计价资产
+            self._add_transaction("TRADE", quote_asset, trade_value, 
+                               {"price": price, "amount": amount, "side": "SELL", "symbol": symbol})
+            
         # 扣除手续费
         if fee > D(0):
             fee_asset_name = fee_asset or (base_asset if is_buy else quote_asset)
@@ -395,14 +409,13 @@ class UserAccount:
                 # 继续执行，不因手续费不足而失败交易
             else:
                 fee_balance.free -= fee
+                # 记录手续费交易
+                self._add_transaction("FEE", fee_asset_name, -fee, 
+                                   {"symbol": symbol, "trade_amount": amount, "trade_price": price, "side": "BUY" if is_buy else "SELL"})
                 logger.info(f"用户 {self.user_id} 扣除手续费 {fee} {fee_asset_name}")
                 
-        # 记录交易
-        trade_type = "BUY" if is_buy else "SELL"
-        self._add_transaction(trade_type, symbol, amount if is_buy else -amount, 
-                            {"price": price, "value": trade_value, "fee": fee, "fee_asset": fee_asset})
-                
-        logger.info(f"用户 {self.user_id} 结算 {trade_type} 交易: {amount} {symbol} @ {price}, 总额: {trade_value}")
+        # 记录交易结算事件
+        logger.info(f"用户 {self.user_id} 结算 {'BUY' if is_buy else 'SELL'} 交易: {amount} {symbol} @ {price}, 总额: {trade_value}")
         return True
     
     def _add_transaction(self, txn_type: str, asset: str, amount: Decimal, details: Dict[str, Any] = None) -> None:
@@ -438,15 +451,15 @@ class UserAccount:
         Returns
         -------
         Dict[str, Any]
-            账户快照，包含余额和持仓信息
+            账户快照，包含余额和持仓信息（过滤零余额资产）
         """
         return {
-            "user_id": self.user_id,
+            "userId": self.user_id,
             "name": self.name,
             "balances": {asset: {"free": float(balance.free), "locked": float(balance.locked), "total": float(balance.total)} 
-                        for asset, balance in self.balances.items()},
+                        for asset, balance in self.balances.items() if balance.total > Decimal('0')},
             "positions": {symbol: {"amount": float(position.amount), "avg_price": float(position.avg_price)} 
-                        for symbol, position in self.positions.items() if position.amount > 0}
+                        for symbol, position in self.positions.items() if position.amount > Decimal('0')}
         }
 
 
@@ -673,7 +686,7 @@ class AccountManager:
             
         is_buy = side.upper() == "BUY"
         
-        return account.settle_trade(
+        result = account.settle_trade(
             symbol=symbol,
             base_asset=base_asset,
             quote_asset=quote_asset,
@@ -683,6 +696,12 @@ class AccountManager:
             fee=fee,
             fee_asset=fee_asset
         )
+        
+        # 通知账户监听器账户状态更新
+        if result:
+            self._notify_account_listeners(user_id)
+            
+        return result
     
     def add_account_listener(self, listener):
         """

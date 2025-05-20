@@ -113,6 +113,28 @@ class Order:
         self.status = OrderStatus.CANCELED
         logger.info(f"订单 {self.order_id} 已取消")
         return True
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        将订单转换为字典，用于API响应
+        
+        Returns
+        -------
+        Dict[str, Any]
+            订单信息字典
+        """
+        return {
+            "orderId": self.order_id,
+            "clientOrderId": self.client_order_id,
+            "symbol": self.symbol,
+            "price": str(self.price) if self.price is not None else None,
+            "origQty": str(self.quantity),
+            "executedQty": str(self.filled_quantity),
+            "status": self.status.value,
+            "type": self.order_type.value,
+            "side": self.side.value,
+            "time": int(self.timestamp * 1000),  # 毫秒时间戳
+        }
 
 @dataclass
 class Trade:
@@ -333,6 +355,46 @@ class MatchingEngine:
             self.order_books[symbol] = OrderBook(symbol)
         return self.order_books[symbol]
     
+    def validate_order(self, order: Order) -> bool:
+        """
+        验证订单有效性
+        
+        Parameters
+        ----------
+        order : Order
+            订单对象
+            
+        Returns
+        -------
+        bool
+            订单是否有效
+        """
+        # 基础验证
+        if not order.symbol:
+            logger.warning("订单缺少交易对信息")
+            order.status = OrderStatus.REJECTED
+            return False
+        
+        # 验证数量
+        if order.quantity <= 0:
+            logger.warning(f"订单数量必须大于零: {order.quantity}")
+            order.status = OrderStatus.REJECTED
+            return False
+            
+        # 验证价格（限价单）
+        if order.order_type == OrderType.LIMIT and order.price is None:
+            logger.warning(f"限价单必须提供价格")
+            order.status = OrderStatus.REJECTED
+            return False
+            
+        # 拒绝负价格或零价格的订单
+        if order.order_type == OrderType.LIMIT and order.price <= 0:
+            logger.warning(f"限价单价格必须大于零: {order.price}")
+            order.status = OrderStatus.REJECTED
+            return False
+            
+        return True
+    
     def place_order(self, order: Order) -> List[Trade]:
         """
         下单并尝试撮合
@@ -348,6 +410,10 @@ class MatchingEngine:
             生成的交易列表
         """
         logger.info(f"收到订单: {order.order_id}, {order.side.value}, {order.quantity}@{order.price}")
+        
+        # 验证订单
+        if not self.validate_order(order):
+            return []
         
         # 获取订单簿
         order_book = self.get_order_book(order.symbol)

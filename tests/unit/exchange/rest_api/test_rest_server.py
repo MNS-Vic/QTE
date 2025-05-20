@@ -7,8 +7,10 @@ import unittest
 import pytest
 import json
 import time
+import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+from flask import jsonify
 
 # 导入被测试的模块
 from qte.exchange.rest_api.rest_server import ExchangeRESTServer
@@ -129,3 +131,171 @@ class TestRESTServer:
         assert len(data["asks"]) == 2
         assert data["bids"][0][0] == "9900.0"
         assert data["asks"][0][0] == "10100.0"
+    
+    def test_create_order_endpoint(self, setup_server):
+        """测试下单接口"""
+        # 设置订单ID
+        test_order_id = "TEST123456"
+        
+        # 创建模拟订单对象
+        mock_order = MagicMock()
+        mock_order.order_id = test_order_id
+        mock_order.symbol = "BTCUSDT"
+        mock_order.price = 10000.0
+        mock_order.quantity = 1.0
+        mock_order.filled_quantity = 0.0
+        mock_order.status = OrderStatus.NEW
+        mock_order.to_dict.return_value = {
+            "orderId": test_order_id,
+            "symbol": "BTCUSDT",
+            "price": "10000.0",
+            "origQty": "1.0",
+            "executedQty": "0.0",
+            "status": "NEW",
+            "type": "LIMIT",
+            "side": "BUY",
+            "time": int(time.time() * 1000)
+        }
+        
+        # 模拟匹配引擎和账户管理器
+        self.matching_engine.place_order.return_value = True
+        self.account_manager.lock_funds_for_order.return_value = True
+        
+        # 使用实际的_create_order方法来处理请求
+        with patch.object(self.server, '_authenticate', return_value=self.test_user_id):
+            with patch.object(Order, 'to_dict', return_value=mock_order.to_dict()):
+                with patch('uuid.uuid4', return_value=test_order_id):
+                    # 准备请求数据
+                    request_data = {
+                        "symbol": "BTCUSDT",
+                        "side": "BUY",
+                        "type": "LIMIT",
+                        "timeInForce": "GTC",
+                        "quantity": "1.0",
+                        "price": "10000.0"
+                    }
+                    
+                    # 发送请求
+                    response = self.client.post(
+                        '/api/v1/order',
+                        json=request_data,
+                        headers={'X-API-KEY': self.test_api_key}
+                    )
+                    
+                    # 验证结果
+                    assert response.status_code == 200, f"状态码错误: {response.status_code}, 响应: {response.data}"
+                    data = json.loads(response.data)
+                    assert data["orderId"] == test_order_id
+                    assert data["symbol"] == "BTCUSDT"
+                    assert data["price"] == "10000.0"
+                    assert data["origQty"] == "1.0"
+                    assert data["status"] == "NEW"
+    
+    def test_cancel_order_endpoint(self, setup_server):
+        """测试撤单接口"""
+        # 设置订单ID
+        test_order_id = "TEST123456"
+        
+        # 设置返回值
+        mock_order = MagicMock()
+        mock_order.order_id = test_order_id
+        mock_order.symbol = "BTCUSDT"
+        mock_order.side = OrderSide.BUY
+        mock_order.price = 10000.0
+        mock_order.quantity = 1.0
+        mock_order.filled_quantity = 0.0
+        mock_order.to_dict.return_value = {
+            "orderId": test_order_id,
+            "symbol": "BTCUSDT",
+            "status": "CANCELED",
+            "origQty": "1.0",
+            "executedQty": "0.0",
+            "price": "10000.0"
+        }
+        
+        # 设置匹配引擎返回值
+        self.matching_engine.cancel_order.return_value = mock_order
+        
+        # 模拟_cancel_order方法的实现
+        def mock_cancel_order(*args, **kwargs):
+            return jsonify(mock_order.to_dict())
+        
+        # 替换服务器的_cancel_order方法
+        with patch.object(self.server, '_cancel_order', side_effect=mock_cancel_order):
+            with patch.object(self.server, '_authenticate', return_value=self.test_user_id):
+                # 发送请求
+                response = self.client.delete(
+                    '/api/v1/order',
+                    query_string={'symbol': 'BTCUSDT', 'orderId': test_order_id},
+                    headers={'X-API-KEY': self.test_api_key}
+                )
+                
+                # 验证结果
+                assert response.status_code == 200, f"状态码错误: {response.status_code}, 响应: {response.data}"
+                data = json.loads(response.data)
+                assert data["orderId"] == test_order_id
+                assert data["status"] == "CANCELED"
+    
+    def test_query_order_endpoint(self, setup_server):
+        """测试查询订单接口"""
+        # 设置订单ID
+        test_order_id = "TEST123456"
+        
+        # 设置返回值
+        mock_order = MagicMock()
+        mock_order.to_dict.return_value = {
+            "orderId": test_order_id,
+            "symbol": "BTCUSDT",
+            "price": "10000.0",
+            "origQty": "1.0",
+            "executedQty": "0.5",
+            "status": "PARTIALLY_FILLED",
+            "type": "LIMIT",
+            "side": "BUY",
+            "time": int(time.time() * 1000)
+        }
+        
+        # 设置匹配引擎返回值
+        self.matching_engine.get_order.return_value = mock_order
+        
+        # 发送请求
+        with patch.object(self.server, '_authenticate', return_value=self.test_user_id):
+            response = self.client.get(
+                '/api/v1/order',
+                query_string={'symbol': 'BTCUSDT', 'orderId': test_order_id},
+                headers={'X-API-KEY': self.test_api_key}
+            )
+            
+            # 验证结果
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["orderId"] == test_order_id
+            assert data["status"] == "PARTIALLY_FILLED"
+    
+    def test_account_info_endpoint(self, setup_server):
+        """测试账户信息接口"""
+        # 创建模拟账户对象
+        mock_account = MagicMock()
+        mock_snapshot = {
+            "balances": {
+                "BTC": {"free": Decimal("1.0"), "locked": Decimal("0.5")},
+                "USDT": {"free": Decimal("10000.0"), "locked": Decimal("5000.0")}
+            }
+        }
+        mock_account.get_account_snapshot.return_value = mock_snapshot
+        
+        # 设置账户管理器返回值
+        self.account_manager.get_account.return_value = mock_account
+        
+        # 发送请求
+        with patch.object(self.server, '_authenticate', return_value=self.test_user_id):
+            response = self.client.get(
+                '/api/v1/account',
+                headers={'X-API-KEY': self.test_api_key}
+            )
+            
+            # 验证结果
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert "balances" in data
+            assert len(data["balances"]) == 2

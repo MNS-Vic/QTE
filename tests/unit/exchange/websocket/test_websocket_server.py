@@ -260,22 +260,12 @@ class TestWebSocketServer:
         assert subscription_key not in self.server.clients[mock_websocket]["subscriptions"]
         assert subscription_key not in self.server.user_subscriptions
         
-        # 验证响应 - 注意：当前实现会同时发送错误和成功响应，这是一个设计问题
-        assert mock_websocket.send.call_count == 2
-        
-        # 第一个响应应该是错误消息
-        first_call_args = mock_websocket.send.call_args_list[0][0][0]
-        first_response = json.loads(first_call_args)
-        assert first_response["id"] == subscribe_id
-        assert "error" in first_response
-        assert "用户数据流需要认证" in first_response["error"]
-        
-        # 第二个响应是成功消息，但这是一个设计问题，应该被修复
-        second_call_args = mock_websocket.send.call_args_list[1][0][0]
-        second_response = json.loads(second_call_args)
-        assert second_response["id"] == subscribe_id
-        assert second_response["result"] == "success"
-        assert second_response["streams"] == streams
+        # 验证响应 - 只发送错误消息
+        assert mock_websocket.send.call_count == 1
+        error_response = json.loads(mock_websocket.send.call_args[0][0])
+        assert error_response["id"] == subscribe_id
+        assert "error" in error_response
+        assert "用户数据流需要认证" in error_response["error"]
         
     @pytest.mark.asyncio
     async def test_subscribe_other_user_data(self, setup_server):
@@ -302,22 +292,12 @@ class TestWebSocketServer:
         assert subscription_key not in self.server.clients[mock_websocket]["subscriptions"]
         assert subscription_key not in self.server.user_subscriptions
         
-        # 验证响应 - 注意：当前实现会同时发送错误和成功响应，这是一个设计问题
-        assert mock_websocket.send.call_count == 2
-        
-        # 第一个响应应该是错误消息
-        first_call_args = mock_websocket.send.call_args_list[0][0][0]
-        first_response = json.loads(first_call_args)
-        assert first_response["id"] == subscribe_id
-        assert "error" in first_response
-        assert "无权订阅其他用户的数据" in first_response["error"]
-        
-        # 第二个响应是成功消息，但这是一个设计问题，应该被修复
-        second_call_args = mock_websocket.send.call_args_list[1][0][0]
-        second_response = json.loads(second_call_args)
-        assert second_response["id"] == subscribe_id
-        assert second_response["result"] == "success"
-        assert second_response["streams"] == streams
+        # 验证响应 - 只发送错误消息
+        assert mock_websocket.send.call_count == 1
+        error_response = json.loads(mock_websocket.send.call_args[0][0])
+        assert error_response["id"] == subscribe_id
+        assert "error" in error_response
+        assert "无权订阅其他用户的数据" in error_response["error"]
         
     @pytest.mark.asyncio
     async def test_unsubscribe_user_data(self, setup_server):

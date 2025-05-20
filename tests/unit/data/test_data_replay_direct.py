@@ -25,6 +25,7 @@ class MockController(BaseDataReplayController):
         super().__init__(data_source=data, mode=mode, speed_factor=speed_factor)
         self._test_data = data or [1, 2, 3]
         self._current_index = 0
+        self._sync_iterators = {}  # 添加同步迭代器属性
     
     def _get_next_data_point(self):
         """直接返回下一个数据点，不依赖线程"""
@@ -44,13 +45,45 @@ class MockController(BaseDataReplayController):
     
     def process_all(self):
         """同步处理所有数据点"""
+        # 确保开始于初始化状态
+        if self._status != ReplayStatus.INITIALIZED:
+            self.reset()
+            
+        # 设置状态为运行
+        with self._lock:
+            self._status = ReplayStatus.RUNNING
+        
         results = []
-        while True:
-            data = self.step()
-            if data is None:
-                break
-            results.append(data)
+        # 直接访问测试数据
+        for item in self._test_data:
+            # 记录数据
+            results.append(item)
+            # 通知回调
+            self._notify_callbacks(item)
+        
+        # 完成后设置状态
+        with self._lock:
+            self._status = ReplayStatus.COMPLETED
+            
         return results
+        
+    def step_sync(self):
+        """同步步进方法"""
+        # 如果未开始，则设置状态为运行
+        if self._status == ReplayStatus.INITIALIZED:
+            with self._lock:
+                self._status = ReplayStatus.RUNNING
+                
+        # 获取并返回下一个数据点
+        if self._status == ReplayStatus.RUNNING:
+            data = self._get_next_data_point()
+            if data is None:
+                with self._lock:
+                    self._status = ReplayStatus.COMPLETED
+            else:
+                self._notify_callbacks(data)
+            return data
+        return None
 
 class TestReplayControllerDirect:
     """直接测试重放控制器API，不依赖线程"""
@@ -69,7 +102,7 @@ class TestReplayControllerDirect:
         # 测试步进
         data_points = []
         for _ in range(4):  # 应该只有3个数据点加上1个None
-            dp = controller.step()
+            dp = controller.step_sync()  # 使用同步步进方法
             data_points.append(dp)
             
         # 检查数据点和最终状态
@@ -94,17 +127,15 @@ class TestReplayControllerDirect:
         
         controller = DataFrameReplayController(df)
         
-        # 手动调用步进收集数据
-        results = []
-        for _ in range(4):  # 应该有3个数据点加上1个None
-            data = controller.step()
-            if data is None:
-                break
-            results.append((data['price'], data['volume']))
+        # 使用同步API process_all_sync
+        results = controller.process_all_sync()
+        
+        # 提取价格和交易量进行验证
+        extracted_results = [(r['price'], r['volume']) for r in results]
         
         # 验证数据
         expected = [(100, 1000), (101, 1100), (102, 1200)]
-        assert results == expected
+        assert extracted_results == expected
         assert controller.get_status() == ReplayStatus.COMPLETED
         
         # 测试重置功能
@@ -112,14 +143,10 @@ class TestReplayControllerDirect:
         assert controller.get_status() == ReplayStatus.INITIALIZED
         
         # 重置后再次收集数据
-        reset_results = []
-        for _ in range(4):
-            data = controller.step()
-            if data is None:
-                break
-            reset_results.append((data['price'], data['volume']))
+        reset_results = controller.process_all_sync()
+        reset_extracted = [(r['price'], r['volume']) for r in reset_results]
             
-        assert reset_results == expected
+        assert reset_extracted == expected
     
     def test_timestamp_column(self):
         """测试时间戳列"""
@@ -134,14 +161,16 @@ class TestReplayControllerDirect:
         # 使用时间戳列创建控制器
         controller = DataFrameReplayController(df, timestamp_column='timestamp')
         
-        # 手动获取数据点
-        d1 = controller.step()
-        assert d1['price'] == 100
-        assert d1['timestamp'] in [pd.Timestamp('2023-01-01'), pd.Timestamp('2023-01-01 00:00:00')]
+        # 使用同步API获取所有数据
+        results = controller.process_all_sync()
         
-        d2 = controller.step()
-        assert d2['price'] == 101
-        assert d2['timestamp'] in [pd.Timestamp('2023-01-02'), pd.Timestamp('2023-01-02 00:00:00')]
+        # 验证第一个数据点
+        assert results[0]['price'] == 100
+        assert results[0]['timestamp'] in [pd.Timestamp('2023-01-01'), pd.Timestamp('2023-01-01 00:00:00')]
+        
+        # 验证第二个数据点
+        assert results[1]['price'] == 101
+        assert results[1]['timestamp'] in [pd.Timestamp('2023-01-02'), pd.Timestamp('2023-01-02 00:00:00')]
     
     def test_multi_source_controller(self):
         """测试多数据源控制器"""
@@ -228,10 +257,10 @@ class TestReplayControllerDirect:
         """测试不同模式的行为"""
         # 步进模式测试
         stepped_controller = MockController(mode=ReplayMode.STEPPED)
-        stepped_controller.start()
+        stepped_controller.start_sync()  # 使用同步启动
         
-        # 启动后，步进模式从step方法中获取数据
-        data = stepped_controller.step()
+        # 启动后，步进模式从step_sync方法中获取数据
+        data = stepped_controller.step_sync()  # 使用同步步进
         assert data == 1
         
         # 回测模式测试 - 使用手动API
