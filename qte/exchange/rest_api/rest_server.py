@@ -72,6 +72,7 @@ class ExchangeRESTServer:
         self.app.route('/api/v3/time', methods=['GET'])(self._server_time)
         self.app.route('/api/v3/ticker/price', methods=['GET'])(self._ticker_price)
         self.app.route('/api/v3/ticker/24hr', methods=['GET'])(self._ticker_24hr)
+        self.app.route('/api/v3/ticker/tradingDay', methods=['GET'])(self._trading_day)
         self.app.route('/api/v3/depth', methods=['GET'])(self._order_book)
         self.app.route('/api/v3/trades', methods=['GET'])(self._recent_trades)
         self.app.route('/api/v3/klines', methods=['GET'])(self._klines)
@@ -79,6 +80,7 @@ class ExchangeRESTServer:
         
         # 交易接口 - 需要认证
         self.app.route('/api/v3/order', methods=['POST'])(self._create_order)
+        self.app.route('/api/v3/order/test', methods=['POST'])(self._test_order)
         self.app.route('/api/v3/order', methods=['DELETE'])(self._cancel_order)
         self.app.route('/api/v3/order', methods=['GET'])(self._get_order)
         self.app.route('/api/v3/openOrders', methods=['GET'])(self._get_open_orders)
@@ -378,27 +380,55 @@ class ExchangeRESTServer:
         """获取K线数据"""
         symbol = request.args.get('symbol')
         interval = request.args.get('interval', '1m')
+        # 新增timeZone参数支持
+        time_zone = request.args.get('timeZone', 'UTC')
         
         if not symbol:
             return self._error_response("必须指定交易对")
+        
+        # 验证时区是否有效    
+        allowed_time_zones = ['UTC', 'China', 'JST', 'KST', 'SGT']
+        if time_zone not in allowed_time_zones:
+            return self._error_response(f"无效的时区: {time_zone}", INVALID_PARAM)
             
+        # 根据时区调整时间戳
+        # 时区偏移量（相对于UTC的小时数）
+        time_zone_offsets = {
+            'UTC': 0,
+            'China': 8,  # 中国为UTC+8
+            'JST': 9,    # 日本为UTC+9
+            'KST': 9,    # 韩国为UTC+9
+            'SGT': 8     # 新加坡为UTC+8
+        }
+        
+        # 获取偏移量（小时）
+        offset_hours = time_zone_offsets.get(time_zone, 0)
+        # 转换为毫秒
+        offset_ms = offset_hours * 3600 * 1000
+        
         # 实际项目中应该有K线数据生成逻辑
-        # 这里返回简化的示例数据
+        # 这里返回简化的示例数据，并根据时区调整时间戳
+        base_time = 1499040000000  # 示例基准时间
+        close_time = 1499644799999  # 示例收盘时间
+        
+        # 根据时区调整时间戳
+        adjusted_base_time = base_time + offset_ms
+        adjusted_close_time = close_time + offset_ms
         
         return jsonify([
             [
-                1499040000000,      # 开盘时间
-                "0.01634790",       # 开盘价
-                "0.01640000",       # 最高价
-                "0.01630000",       # 最低价
-                "0.01639990",       # 收盘价
-                "148976.11427815",  # 成交量
-                1499644799999,      # 收盘时间
-                "2434.19055334",    # 成交额
-                308,                # 成交笔数
-                "1756.87402397",    # 主动买入成交量
-                "28.46694368",      # 主动买入成交额
-                "0"                 # 忽略
+                adjusted_base_time,  # 开盘时间（已调整）
+                "0.01634790",        # 开盘价
+                "0.01640000",        # 最高价
+                "0.01630000",        # 最低价
+                "0.01639990",        # 收盘价
+                "148976.11427815",   # 成交量
+                adjusted_close_time, # 收盘时间（已调整）
+                "2434.19055334",     # 成交额
+                308,                 # 成交笔数
+                "1756.87402397",     # 主动买入成交量
+                "28.46694368",       # 主动买入成交额
+                "0"                  # 忽略
             ]
         ])
     
@@ -558,11 +588,13 @@ class ExchangeRESTServer:
                         amount=Decimal(str(order.remaining_quantity))
                     )
                     
+            # 添加transactTime字段（根据2023-07-11更新）
             return jsonify({
                 "symbol": symbol,
                 "orderId": order_id,
                 "status": "CANCELED",
-                "success": True
+                "success": True,
+                "transactTime": int(time.time() * 1000)  # 毫秒时间戳
             })
             
         except Exception as e:
@@ -855,38 +887,87 @@ class ExchangeRESTServer:
         return jsonify(result)
     
     def _get_commission(self) -> Response:
-        """
-        获取账户佣金信息，2023-12-04新增接口
+        """获取账户佣金费率"""
+        user_id = self._authenticate()
+        if not user_id:
+            return self._error_response("API-key required", error_code=INVALID_API_KEY, status_code=401)
         
-        Returns
-        -------
-        Response
-            佣金信息响应
+        # 固定费率，实际项目中应根据用户等级、交易量等计算
+        maker_commission = "0.001" # 0.1%
+        taker_commission = "0.001" # 0.1%
+        
+        result = {
+            "makerCommission": maker_commission,
+            "takerCommission": taker_commission,
+            "buyerCommission": "0",
+            "sellerCommission": "0"
+        }
+        
+        return jsonify(result)
+    
+    def _trading_day(self) -> Response:
+        """
+        获取当前交易日信息
+        根据币安API: /api/v3/ticker/tradingDay
+        """
+        # 获取当前时间
+        now = time.time()
+        
+        # 计算交易日开始时间和结束时间
+        # 币安以UTC 0点作为交易日分界
+        now_dt = time.gmtime(now)
+        
+        # 当前交易日开始时间（UTC 0点）
+        start_time = time.mktime(time.struct_time((
+            now_dt.tm_year, now_dt.tm_mon, now_dt.tm_mday,
+            0, 0, 0, now_dt.tm_wday, now_dt.tm_yday, now_dt.tm_isdst
+        )))
+        
+        # 下一交易日开始时间
+        end_time = start_time + 86400  # 一天的秒数
+        
+        result = {
+            "timezone": "UTC",
+            "serverTime": int(now * 1000),
+            "tradingDayStart": int(start_time * 1000),
+            "tradingDayEnd": int(end_time * 1000)
+        }
+        
+        return jsonify(result)
+    
+    def _test_order(self) -> Response:
+        """
+        测试下单接口，与_create_order逻辑相同但不实际下单
+        根据币安API: POST /api/v3/order/test
         """
         user_id = self._authenticate()
         if not user_id:
             return self._error_response("API-key required", error_code=INVALID_API_KEY_ORDER, status_code=401)
             
-        # 默认佣金值
-        result = {
-            "standardCommission": {
-                "maker": "0.00100000",  # 默认0.1%做市商佣金
-                "taker": "0.00100000",  # 默认0.1%接受方佣金
-                "buyer": "0.00000000",  # 默认0%买方佣金
-                "seller": "0.00000000"  # 默认0%卖方佣金
-            },
-            "taxCommission": {
-                "maker": "0.00000000",  # 默认0%做市商税
-                "taker": "0.00000000",  # 默认0%接受方税
-                "buyer": "0.00000000",  # 默认0%买方税
-                "seller": "0.00000000"  # 默认0%卖方税
-            },
-            "discount": {
-                "enabledForAccount": False,  # 账户是否启用折扣
-                "enabledForSymbol": False,  # 交易对是否启用折扣
-                "discountAsset": "",        # 折扣资产
-                "discount": "0.00000000"    # 折扣量
-            }
-        }
+        # 获取请求参数 - 支持不同的内容类型
+        data = {}
+        if request.content_type == 'application/json' and request.json:
+            data = request.json
+        elif request.form:
+            data = request.form.to_dict()
+        elif request.args:
+            data = request.args.to_dict()
         
-        return jsonify(result)
+        if not data:
+            return self._error_response("Missing request data", error_code=INVALID_PARAM, status_code=400)
+        
+        # 验证时间戳参数
+        timestamp = data.get('timestamp')
+        if timestamp:
+            is_valid, error_msg, error_code = RequestValidator.validate_timestamp(timestamp)
+            if not is_valid:
+                return self._error_response(error_msg, error_code=error_code, status_code=400)
+        
+        # 使用请求验证器进行参数验证
+        is_valid, error_msg = RequestValidator.validate_order_request(data)
+        if not is_valid:
+            # 返回400状态码和错误信息
+            return self._error_response(error_msg or "Invalid request parameters", error_code=INVALID_PARAM, status_code=400)
+        
+        # 成功通过验证，返回空对象表示成功
+        return jsonify({})

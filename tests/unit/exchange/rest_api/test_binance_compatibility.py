@@ -142,9 +142,16 @@ class TestBinanceCompatibility:
             )
             assert response.status_code == 200
             data = json.loads(response.data)
-            assert "standardCommission" in data
-            assert "taxCommission" in data
-            assert "discount" in data
+            
+            # 更新为新的佣金响应格式
+            assert "makerCommission" in data
+            assert "takerCommission" in data
+            assert "buyerCommission" in data
+            assert "sellerCommission" in data
+            
+            # 检查佣金值
+            assert data["makerCommission"] == "0.001"  # 0.1%
+            assert data["takerCommission"] == "0.001"  # 0.1%
     
     def test_omit_zero_balances(self, setup_server):
         """测试隐藏零余额功能"""

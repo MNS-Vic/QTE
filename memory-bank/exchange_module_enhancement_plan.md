@@ -11,10 +11,10 @@
 **目标**：完善币安兼容性，实现缺失的关键API端点
 
 **任务明细**：
-- [ ] 实现`/api/v3/ticker/tradingDay`端点
-- [ ] 为`/api/v3/klines`添加`timeZone`参数支持
-- [ ] 实现`POST /api/v3/order/test`和测试佣金计算
-- [ ] 添加`transactTime`字段到取消订单相关响应
+- [x] 实现`/api/v3/ticker/tradingDay`端点
+- [x] 为`/api/v3/klines`添加`timeZone`参数支持
+- [x] 实现`POST /api/v3/order/test`和测试佣金计算
+- [x] 添加`transactTime`字段到取消订单相关响应
 - [ ] 添加`origQuoteOrderQty`字段到所有订单相关响应
 - [ ] 优化时间戳验证逻辑，与最新规范保持一致
 - [ ] 支持反向市价单（Market with quoteOrderQty）
