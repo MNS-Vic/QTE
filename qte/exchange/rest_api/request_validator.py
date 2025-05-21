@@ -33,7 +33,7 @@ class RequestValidator:
             return False, "请求数据为空"
             
         # 验证必填参数
-        required_params = ["symbol", "side", "type", "quantity"]
+        required_params = ["symbol", "side", "type"]
         for param in required_params:
             if param not in data:
                 return False, f"缺少必要参数: {param}"
@@ -48,25 +48,61 @@ class RequestValidator:
         if side not in ["BUY", "SELL"]:
             return False, f"无效的订单方向: {side}"
             
-        # 验证数量
-        try:
-            quantity = float(data["quantity"])
-            if quantity <= 0:
-                return False, "数量必须大于0"
-        except (ValueError, TypeError):
-            return False, f"无效的数量格式: {data['quantity']}"
+        # 验证数量 - 必须提供quantity或quote_order_qty之一
+        if "quantity" not in data and "quoteOrderQty" not in data:
+            return False, "必须提供quantity或quoteOrderQty参数"
             
-        # 对于限价单，验证价格
-        if order_type == "LIMIT":
-            if "price" not in data:
-                return False, "限价单必须提供价格"
-                
+        # 验证数量
+        if "quantity" in data:
             try:
-                price = float(data["price"])
-                if price <= 0:
-                    return False, "价格必须大于0"
+                quantity = float(data["quantity"])
+                if quantity <= 0:
+                    return False, "数量必须大于0"
             except (ValueError, TypeError):
-                return False, f"无效的价格格式: {data['price']}"
+                return False, f"无效的数量格式: {data['quantity']}"
+                
+        # 验证报价数量
+        if "quoteOrderQty" in data:
+            try:
+                quote_qty = float(data["quoteOrderQty"])
+                if quote_qty <= 0:
+                    return False, "报价数量必须大于0"
+            except (ValueError, TypeError):
+                return False, f"无效的报价数量格式: {data['quoteOrderQty']}"
+            
+            # 如果同时提供了quantity和quoteOrderQty，则市价单中优先使用quoteOrderQty
+            if "quantity" in data and order_type != "MARKET":
+                return False, "quoteOrderQty仅适用于市价单"
+            
+        # 验证价格匹配模式
+        price_match = data.get("priceMatch")
+        if price_match:
+            valid_modes = [
+                "NONE", 
+                "OPPONENT", "OPPONENT_5", "OPPONENT_10", "OPPONENT_20",
+                "QUEUE", "QUEUE_5", "QUEUE_10", "QUEUE_20"
+            ]
+            if price_match not in valid_modes:
+                return False, f"无效的价格匹配模式: {price_match}"
+                
+            # 如果使用价格匹配且是限价单，则不需要price参数
+            if price_match != "NONE" and data.get("type", "").upper() == "LIMIT" and "price" in data and data["price"]:
+                return False, "使用价格匹配时不应提供价格"
+        
+        # 对于限价单，验证价格 - 除非使用价格匹配
+        if order_type == "LIMIT":
+            # 使用价格匹配时不需要提供价格
+            if price_match and price_match != "NONE":
+                pass  # 允许不提供价格
+            elif "price" not in data:
+                return False, "限价单必须提供价格"
+            elif data["price"]:
+                try:
+                    price = float(data["price"])
+                    if price <= 0:
+                        return False, "价格必须大于0"
+                except (ValueError, TypeError):
+                    return False, f"无效的价格格式: {data['price']}"
                 
         # 对于市价单，验证不应提供价格
         elif order_type == "MARKET" and "price" in data and data["price"]:
@@ -76,6 +112,11 @@ class RequestValidator:
         symbol = data["symbol"]
         if not isinstance(symbol, str) or len(symbol) < 2:
             return False, f"无效的交易对格式: {symbol}"
+            
+        # 验证自成交保护模式
+        stp_mode = data.get("selfTradePreventionMode")
+        if stp_mode and stp_mode not in ["NONE", "EXPIRE_TAKER", "EXPIRE_MAKER", "EXPIRE_BOTH"]:
+            return False, f"无效的自成交保护模式: {stp_mode}"
             
         return True, None
         

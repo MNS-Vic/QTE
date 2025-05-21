@@ -64,4 +64,8 @@ MAX_NUM_ORDERS = -4006  # 最大订单数
 MAX_ALGO_ORDERS = -4007  # 最大算法订单数
 MAX_NUM_ICEBERG_ORDERS = -4008  # 最大分段订单数
 EXCHANGE_MAX_NUM_ORDERS = -4010  # 交易所最大订单数
-EXCHANGE_MAX_ALGO_ORDERS = -4011  # 交易所最大算法订单数 
+EXCHANGE_MAX_ALGO_ORDERS = -4011  # 交易所最大算法订单数
+
+# 订单相关错误
+UNKNOWN_ORDER = -2011  # 未知订单
+ORDER_NOT_FOUND = -2013  # 订单不存在 

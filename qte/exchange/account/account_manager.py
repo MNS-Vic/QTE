@@ -533,7 +533,8 @@ class AccountManager:
     
     def lock_funds_for_order(self, user_id: str, symbol: str, 
                           side: str, amount: Decimal, price: Optional[Decimal] = None,
-                          base_asset: Optional[str] = None, quote_asset: Optional[str] = None) -> bool:
+                          base_asset: Optional[str] = None, quote_asset: Optional[str] = None,
+                          is_quote_order: bool = False) -> bool:
         """
         为订单锁定资金
         
@@ -553,6 +554,8 @@ class AccountManager:
             基础资产, by default None (从交易对解析)
         quote_asset : Optional[str], optional
             计价资产, by default None (从交易对解析)
+        is_quote_order : bool, optional
+            是否为报价金额订单, by default False
             
         Returns
         -------
@@ -571,8 +574,11 @@ class AccountManager:
             
         # 买单: 锁定计价资产
         if side.upper() == "BUY":
-            if not price:
-                logger.warning(f"买单必须指定价格")
+            if is_quote_order:
+                # 如果是报价金额订单，直接锁定报价金额
+                return account.lock_asset(quote_asset, amount)
+            elif not price:
+                logger.warning(f"买单必须指定价格或使用报价金额")
                 return False
                 
             total_value = amount * price
@@ -588,7 +594,8 @@ class AccountManager:
     
     def unlock_funds_for_order(self, user_id: str, symbol: str, 
                             side: str, amount: Decimal, price: Optional[Decimal] = None,
-                            base_asset: Optional[str] = None, quote_asset: Optional[str] = None) -> bool:
+                            base_asset: Optional[str] = None, quote_asset: Optional[str] = None,
+                            is_quote_order: bool = False) -> bool:
         """
         解锁订单资金（取消订单）
         
@@ -608,6 +615,8 @@ class AccountManager:
             基础资产, by default None (从交易对解析)
         quote_asset : Optional[str], optional
             计价资产, by default None (从交易对解析)
+        is_quote_order : bool, optional
+            是否为报价金额订单, by default False
             
         Returns
         -------
@@ -626,8 +635,11 @@ class AccountManager:
             
         # 买单: 解锁计价资产
         if side.upper() == "BUY":
-            if not price:
-                logger.warning(f"买单必须指定价格")
+            if is_quote_order:
+                # 如果是报价金额订单，直接解锁报价金额
+                return account.unlock_asset(quote_asset, amount)
+            elif not price:
+                logger.warning(f"买单必须指定价格或使用报价金额")
                 return False
                 
             total_value = amount * price

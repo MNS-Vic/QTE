@@ -470,14 +470,28 @@ class ExchangeRESTServer:
         quantity = data.get('quantity')
         price = data.get('price')
         client_order_id = data.get('newClientOrderId')
+        quote_order_qty = data.get('quoteOrderQty')  # 添加对报价数量的支持
             
         try:
             # 转换参数
-            quantity = Decimal(str(quantity))
+            quantity = Decimal(str(quantity)) if quantity else None
             price = Decimal(str(price)) if price else None
-                
-            # 锁定资金
-            if not self.account_manager.lock_funds_for_order(
+            quote_order_qty = Decimal(str(quote_order_qty)) if quote_order_qty else None
+            
+            # 锁定资金时需要特殊处理报价数量订单
+            lock_amount = quantity
+            if quote_order_qty and not quantity and type.upper() == 'MARKET' and side.upper() == 'BUY':
+                # 对于使用报价数量的市价买单，锁定资金为报价数量
+                if not self.account_manager.lock_funds_for_order(
+                    user_id=user_id,
+                    symbol=symbol,
+                    side=side,
+                    amount=quote_order_qty,
+                    price=None,
+                    is_quote_order=True  # 标记为报价数量订单
+                ):
+                    return self._error_response("资金不足", 400)
+            elif not self.account_manager.lock_funds_for_order(
                 user_id=user_id,
                 symbol=symbol,
                 side=side,
@@ -493,11 +507,14 @@ class ExchangeRESTServer:
                     symbol=symbol,
                     side=OrderSide.BUY if side.upper() == 'BUY' else OrderSide.SELL,
                     order_type=OrderType.LIMIT if type.upper() == 'LIMIT' else OrderType.MARKET,
-                    quantity=quantity,
+                    quantity=quantity if quantity else Decimal('0'),  # 可能为None，设置默认值
                     price=price,
                     timestamp=time.time(),
                     user_id=user_id,
-                    client_order_id=client_order_id
+                    client_order_id=client_order_id,
+                    quote_order_qty=quote_order_qty,  # 设置报价数量
+                    self_trade_prevention_mode=data.get('selfTradePreventionMode', 'NONE'),  # 自成交保护模式
+                    price_match=data.get('priceMatch', 'NONE')  # 价格匹配模式
                 )
                 
                 # 下单
@@ -505,13 +522,23 @@ class ExchangeRESTServer:
                 
                 if not success:
                     # 解锁资金
-                    self.account_manager.unlock_funds_for_order(
-                        user_id=user_id,
-                        symbol=symbol,
-                        side=side,
-                        amount=quantity,
-                        price=price
-                    )
+                    if quote_order_qty and not quantity and type.upper() == 'MARKET' and side.upper() == 'BUY':
+                        self.account_manager.unlock_funds_for_order(
+                            user_id=user_id,
+                            symbol=symbol,
+                            side=side,
+                            amount=quote_order_qty,
+                            price=None,
+                            is_quote_order=True
+                        )
+                    else:
+                        self.account_manager.unlock_funds_for_order(
+                            user_id=user_id,
+                            symbol=symbol,
+                            side=side,
+                            amount=quantity,
+                            price=price
+                        )
                     return self._error_response("下单失败")
                     
                 # 返回订单信息
@@ -521,13 +548,23 @@ class ExchangeRESTServer:
             except Exception as e:
                 # 发生异常时，解锁已锁定的资金
                 try:
-                    self.account_manager.unlock_funds_for_order(
-                        user_id=user_id,
-                        symbol=symbol,
-                        side=side,
-                        amount=quantity,
-                        price=price
-                    )
+                    if quote_order_qty and not quantity and type.upper() == 'MARKET' and side.upper() == 'BUY':
+                        self.account_manager.unlock_funds_for_order(
+                            user_id=user_id,
+                            symbol=symbol,
+                            side=side,
+                            amount=quote_order_qty,
+                            price=None,
+                            is_quote_order=True
+                        )
+                    else:
+                        self.account_manager.unlock_funds_for_order(
+                            user_id=user_id,
+                            symbol=symbol,
+                            side=side,
+                            amount=quantity,
+                            price=price
+                        )
                 except Exception as unlock_e:
                     logger.error("解锁资金失败")
                     logger.error(f"解锁资金异常详情: {unlock_e}")
@@ -540,66 +577,81 @@ class ExchangeRESTServer:
             return self._error_response(f"创建订单失败: {str(e)}")
     
     def _cancel_order(self) -> Response:
-        """
-        取消订单
-        
-        Returns
-        -------
-        Response
-            操作结果
-        """
-        # 用户认证
+        """取消订单"""
         user_id = self._authenticate()
         if not user_id:
-            return self._error_response("未认证", 401)
+            return self._error_response("API-key required", error_code=INVALID_API_KEY_ORDER, status_code=401)
             
-        # 从查询参数中获取参数（适用于DELETE请求）
+        # 获取请求参数
         symbol = request.args.get('symbol')
         order_id = request.args.get('orderId')
+        client_order_id = request.args.get('origClientOrderId')
+        cancel_restrictions = request.args.get('cancelRestrictions')
         
-        # 参数验证
         if not symbol:
-            return self._error_response("缺少参数: symbol", 400)
-        if not order_id:
-            return self._error_response("缺少参数: orderId", 400)
+            return self._error_response("Parameter 'symbol' is required", error_code=INVALID_PARAM, status_code=400)
             
-        # 尝试取消订单
-        try:
-            success = self.matching_engine.cancel_order(symbol, order_id)
-            if not success:
-                return self._error_response(f"取消订单失败: 订单不存在或已完成", 404)
+        if not (order_id or client_order_id):
+            return self._error_response("Parameter 'orderId' or 'origClientOrderId' is required", error_code=INVALID_PARAM, status_code=400)
+            
+        # 校验取消限制参数
+        if cancel_restrictions and cancel_restrictions not in ["ONLY_NEW", "ONLY_PARTIALLY_FILLED"]:
+            return self._error_response("Invalid cancelRestrictions", error_code=INVALID_PARAM, status_code=400)
+        
+        # 根据ID类型获取订单详情
+        if order_id:
+            order = self.matching_engine.get_order(order_id)
+        else:
+            order = self.matching_engine.get_order_by_client_id(user_id, client_order_id)
+            
+        # 检查订单是否存在
+        if not order:
+            return self._error_response("Order does not exist", error_code=ORDER_NOT_FOUND, status_code=404)
+            
+        # 验证订单所有者
+        if order.user_id != user_id:
+            return self._error_response("Order does not belong to current user", error_code=UNAUTHORIZED, status_code=401)
+        
+        # 检查取消限制条件
+        if cancel_restrictions:
+            # 只允许取消NEW状态的订单
+            if cancel_restrictions == "ONLY_NEW" and order.status != OrderStatus.NEW:
+                return self._error_response("Order was not canceled due to cancel restrictions", error_code=CANCEL_REJECTED, status_code=400)
                 
-            # 解锁资金
-            order = self.matching_engine.get_order(symbol, order_id)
-            if order and order.status == OrderStatus.CANCELED:
-                if order.side == OrderSide.BUY:
-                    # 买单解锁quote资产
-                    locked_amount = order.price * order.remaining_quantity
-                    self.account_manager.unlock_asset(
-                        user_id=user_id,
-                        asset=symbol.split('/')[-1] if '/' in symbol else symbol[3:],  # 假设格式为BTC/USDT或BTCUSDT
-                        amount=Decimal(str(locked_amount))
-                    )
-                else:
-                    # 卖单解锁base资产
-                    self.account_manager.unlock_asset(
-                        user_id=user_id,
-                        asset=symbol.split('/')[0] if '/' in symbol else symbol[:3],  # 假设格式为BTC/USDT或BTCUSDT
-                        amount=Decimal(str(order.remaining_quantity))
-                    )
-                    
-            # 添加transactTime字段（根据2023-07-11更新）
-            return jsonify({
-                "symbol": symbol,
-                "orderId": order_id,
-                "status": "CANCELED",
-                "success": True,
-                "transactTime": int(time.time() * 1000)  # 毫秒时间戳
-            })
-            
-        except Exception as e:
-            logger.error(f"取消订单异常: {e}")
-            return self._error_response(f"取消订单失败: {str(e)}", 500)
+            # 只允许取消PARTIALLY_FILLED状态的订单
+            if cancel_restrictions == "ONLY_PARTIALLY_FILLED" and order.status != OrderStatus.PARTIALLY_FILLED:
+                return self._error_response("Order was not canceled due to cancel restrictions", error_code=CANCEL_REJECTED, status_code=400)
+        
+        # 尝试取消订单
+        success = self.matching_engine.cancel_order(order.order_id)
+        
+        if not success:
+            return self._error_response("取消订单失败")
+        
+        # 解锁资金
+        if order.side == OrderSide.BUY:
+            # 买单解锁quote资产
+            locked_amount = order.price * order.remaining_quantity
+            self.account_manager.unlock_asset(
+                user_id=user_id,
+                asset=symbol.split('/')[-1] if '/' in symbol else symbol[3:],  # 假设格式为BTC/USDT或BTCUSDT
+                amount=Decimal(str(locked_amount))
+            )
+        else:
+            # 卖单解锁base资产
+            self.account_manager.unlock_asset(
+                user_id=user_id,
+                asset=symbol.split('/')[0] if '/' in symbol else symbol[:3],  # 假设格式为BTC/USDT或BTCUSDT
+                amount=Decimal(str(order.remaining_quantity))
+            )
+        
+        return jsonify({
+            "symbol": symbol,
+            "orderId": order_id,
+            "status": "CANCELED",
+            "success": True,
+            "transactTime": int(time.time() * 1000)  # 毫秒时间戳
+        })
     
     def _get_order(self) -> Response:
         """查询订单"""
@@ -649,18 +701,8 @@ class ExchangeRESTServer:
         for order_book in order_books:
             for order in order_book.order_map.values():
                 if order.user_id == user_id and order.status in [OrderStatus.NEW, OrderStatus.PARTIALLY_FILLED]:
-                    result.append({
-                        "symbol": order.symbol,
-                        "orderId": order.order_id,
-                        "clientOrderId": order.client_order_id,
-                        "price": str(order.price) if order.price else "0",
-                        "origQty": str(order.quantity),
-                        "executedQty": str(order.filled_quantity),
-                        "status": order.status.value,
-                        "type": order.order_type.value,
-                        "side": order.side.value,
-                        "time": int(order.timestamp * 1000)
-                    })
+                    # 使用to_dict方法获取完整订单信息，包含价格匹配和自成交保护模式
+                    result.append(order.to_dict())
                     
         return jsonify(result)
     

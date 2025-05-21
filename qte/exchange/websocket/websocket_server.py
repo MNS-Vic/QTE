@@ -14,7 +14,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 # 导入撮合引擎和账户管理器
-from qte.exchange.matching.matching_engine import MatchingEngine, Trade
+from qte.exchange.matching.matching_engine import MatchingEngine, Trade, Order
 from qte.exchange.account.account_manager import AccountManager
 
 logger = logging.getLogger("WebSocketServer")
@@ -63,6 +63,9 @@ class ExchangeWebSocketServer:
         
         # 注册成交监听器
         self.matching_engine.add_trade_listener(self._on_trade)
+        
+        # 注册订单状态更新监听器
+        self.matching_engine.add_order_listener(self._on_order_update)
         
         # 注册账户监听器
         self.account_manager.add_account_listener(self._on_account_update)
@@ -696,50 +699,7 @@ class ExchangeWebSocketServer:
             
             asyncio.create_task(self._broadcast_to_market_subscribers(depth_key, depth_msg))
             
-        # 发送用户订单更新消息
-        if trade.buyer_user_id:
-            order_key = f"{trade.buyer_user_id}@order"
-            if order_key in self.user_subscriptions:
-                order_msg = {
-                    "stream": order_key,
-                    "data": {
-                        "e": "executionReport",  # 事件类型
-                        "E": int(time.time() * 1000),  # 事件时间
-                        "s": trade.symbol,     # 交易对
-                        "c": "",               # 客户端订单ID（此处简化）
-                        "i": trade.buy_order_id,  # 订单ID
-                        "x": "TRADE",          # 当前执行类型
-                        "X": "PARTIALLY_FILLED",  # 当前订单状态（简化）
-                        "p": str(trade.price), # 价格
-                        "q": str(trade.quantity),  # 数量
-                        "z": str(trade.quantity),  # 累计成交数量（简化）
-                        "T": int(trade.timestamp * 1000)  # 成交时间
-                    }
-                }
-                
-                asyncio.create_task(self._broadcast_to_user_subscribers(order_key, order_msg))
-                
-        if trade.seller_user_id:
-            order_key = f"{trade.seller_user_id}@order"
-            if order_key in self.user_subscriptions:
-                order_msg = {
-                    "stream": order_key,
-                    "data": {
-                        "e": "executionReport",  # 事件类型
-                        "E": int(time.time() * 1000),  # 事件时间
-                        "s": trade.symbol,     # 交易对
-                        "c": "",               # 客户端订单ID（此处简化）
-                        "i": trade.sell_order_id,  # 订单ID
-                        "x": "TRADE",          # 当前执行类型
-                        "X": "PARTIALLY_FILLED",  # 当前订单状态（简化）
-                        "p": str(trade.price), # 价格
-                        "q": str(trade.quantity),  # 数量
-                        "z": str(trade.quantity),  # 累计成交数量（简化）
-                        "T": int(trade.timestamp * 1000)  # 成交时间
-                    }
-                }
-                
-                asyncio.create_task(self._broadcast_to_user_subscribers(order_key, order_msg))
+        # 注意：订单状态更新已经移至_on_order_update方法处理
     
     def _on_account_update(self, user_id: str, account_snapshot: Dict[str, Any]) -> None:
         """
@@ -774,6 +734,60 @@ class ExchangeWebSocketServer:
         # 发送账户更新消息到订阅者
         account_key = f"{user_id}@account"
         asyncio.create_task(self._broadcast_to_user_subscribers(account_key, account_msg))
+    
+    def _on_order_update(self, order: Order, update_type: str) -> None:
+        """
+        订单状态更新事件处理
+        
+        Parameters
+        ----------
+        order : Order
+            订单对象
+        update_type : str
+            更新类型
+        """
+        # 检查是否有用户订阅了此订单的更新
+        if not order.user_id:
+            return
+            
+        # 构建订单更新消息
+        order_update_key = f"{order.user_id}@order"
+        if order_update_key not in self.user_subscriptions:
+            return
+            
+        # 准备ORDER_TRADE_UPDATE消息格式
+        update_data = {
+            "stream": order_update_key,
+            "data": {
+                "e": "ORDER_TRADE_UPDATE",  # 事件类型
+                "E": int(time.time() * 1000),  # 事件时间
+                "o": {
+                    "s": order.symbol,       # 交易对
+                    "c": order.client_order_id or "",  # 客户端订单ID
+                    "S": order.side.value,   # 订单方向
+                    "o": order.order_type.value,  # 订单类型
+                    "i": order.order_id,     # 订单ID
+                    "p": str(order.price) if order.price else "0",  # 订单价格
+                    "q": str(order.quantity),  # 订单数量
+                    "x": update_type,        # 执行类型
+                    "X": order.status.value, # 订单状态
+                    "z": str(order.filled_quantity),  # 累计成交量
+                    "T": int(time.time() * 1000),  # 更新时间
+                    "V": order.self_trade_prevention_mode,  # 自成交保护模式
+                }
+            }
+        }
+        
+        # 添加价格匹配模式字段
+        if order.price_match != "NONE":
+            update_data["data"]["o"]["pm"] = order.price_match
+            
+        # 如果是使用报价金额的市价买单，添加报价金额字段
+        if order.quote_order_qty is not None:
+            update_data["data"]["o"]["Q"] = str(order.quote_order_qty)
+        
+        # 发送更新消息
+        asyncio.create_task(self._broadcast_to_user_subscribers(order_update_key, update_data))
     
     async def _broadcast_to_market_subscribers(self, subscription_key: str, message: Dict[str, Any]) -> None:
         """
