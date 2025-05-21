@@ -7,7 +7,7 @@ import time
 import uuid
 import bisect
 import logging
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -39,6 +39,7 @@ class OrderStatus(Enum):
     CANCELED = "CANCELED"  # 已取消
     REJECTED = "REJECTED"  # 已拒绝
     EXPIRED = "EXPIRED"    # 已过期
+    EXPIRED_IN_MATCH = "EXPIRED_IN_MATCH"  # 因自成交保护而过期
 
 @dataclass
 class Order:
@@ -56,6 +57,9 @@ class Order:
     remaining_quantity: float = 0.0    # 剩余数量
     user_id: str = ""                  # 用户ID
     client_order_id: Optional[str] = None  # 客户端订单ID
+    quote_order_qty: Optional[float] = None  # 报价金额（用于反向市价单）
+    self_trade_prevention_mode: str = "NONE"  # 自成交保护模式: NONE, EXPIRE_TAKER, EXPIRE_MAKER, EXPIRE_BOTH
+    price_match: str = "NONE"          # 价格匹配模式: NONE, OPPONENT, OPPONENT_5, QUEUE, QUEUE_5等
     
     def __post_init__(self):
         """初始化后设置剩余数量"""
@@ -87,6 +91,8 @@ class Order:
             
         self.filled_quantity += fill_quantity
         self.remaining_quantity -= fill_quantity
+        
+        previous_status = self.status
         
         if self.remaining_quantity <= 0:
             self.status = OrderStatus.FILLED
@@ -123,7 +129,16 @@ class Order:
         Dict[str, Any]
             订单信息字典
         """
-        return {
+        # 计算或使用原始报价金额
+        orig_quote_order_qty = None
+        if self.quote_order_qty is not None:
+            # 如果设置了quote_order_qty，直接使用
+            orig_quote_order_qty = str(round(float(self.quote_order_qty), 8))
+        elif self.price is not None and self.quantity > 0:
+            # 否则根据价格和数量计算
+            orig_quote_order_qty = str(round(float(self.price) * float(self.quantity), 8))
+            
+        result = {
             "orderId": self.order_id,
             "clientOrderId": self.client_order_id,
             "symbol": self.symbol,
@@ -134,7 +149,15 @@ class Order:
             "type": self.order_type.value,
             "side": self.side.value,
             "time": int(self.timestamp * 1000),  # 毫秒时间戳
+            "origQuoteOrderQty": orig_quote_order_qty,  # 原始报价金额
+            "selfTradePreventionMode": self.self_trade_prevention_mode  # 自成交保护模式
         }
+        
+        # 只有在非NONE模式下才添加priceMatch字段
+        if self.price_match != "NONE":
+            result["priceMatch"] = self.price_match
+            
+        return result
 
 @dataclass
 class Trade:
@@ -203,20 +226,44 @@ class OrderBook:
         if order.side == OrderSide.BUY:
             if order.price not in self.buy_orders:
                 self.buy_orders[order.price] = []
-                # 更新排序的价格列表（降序）
-                bisect.insort_left(self.buy_prices, order.price)
-                self.buy_prices.reverse()  # 保持降序
+                # 更新排序的价格列表（降序）- 使用二分查找确定插入位置
+                # 对于买单，我们希望按照价格从高到低排序
+                pos = self._find_buy_position(order.price)
+                self.buy_prices.insert(pos, order.price)
             self.buy_orders[order.price].append(order)
             logger.info(f"买单 {order.order_id} 加入订单簿: {order.quantity}@{order.price}")
         else:
             if order.price not in self.sell_orders:
                 self.sell_orders[order.price] = []
-                # 更新排序的价格列表（升序）
+                # 更新排序的价格列表（升序）- 使用bisect库高效插入
                 bisect.insort_left(self.sell_prices, order.price)
             self.sell_orders[order.price].append(order)
             logger.info(f"卖单 {order.order_id} 加入订单簿: {order.quantity}@{order.price}")
             
         return True
+    
+    def _find_buy_position(self, price: float) -> int:
+        """
+        使用二分查找确定买价在降序列表中的插入位置
+        
+        Parameters
+        ----------
+        price : float
+            要插入的价格
+            
+        Returns
+        -------
+        int
+            应该插入的位置索引
+        """
+        left, right = 0, len(self.buy_prices)
+        while left < right:
+            mid = (left + right) // 2
+            if self.buy_prices[mid] > price:
+                left = mid + 1
+            else:
+                right = mid
+        return left
     
     def remove_order(self, order_id: str) -> Optional[Order]:
         """
@@ -334,6 +381,7 @@ class MatchingEngine:
         self.order_books: Dict[str, OrderBook] = {}  # 交易对 -> 订单簿
         self.trades: List[Trade] = []  # 成交记录
         self.trade_listeners = []  # 成交监听器
+        self.order_listeners = []  # 订单状态更新监听器
         
         logger.info("撮合引擎已初始化")
     
@@ -383,6 +431,11 @@ class MatchingEngine:
             
         # 验证价格（限价单）
         if order.order_type == OrderType.LIMIT and order.price is None:
+            # 如果是带有价格匹配模式的订单，先不验证价格
+            if order.price_match != "NONE":
+                # 在place_order方法中会先进行价格匹配，然后再次验证
+                return True
+                
             logger.warning(f"限价单必须提供价格")
             order.status = OrderStatus.REJECTED
             return False
@@ -411,19 +464,83 @@ class MatchingEngine:
         """
         logger.info(f"收到订单: {order.order_id}, {order.side.value}, {order.quantity}@{order.price}")
         
-        # 验证订单
-        if not self.validate_order(order):
+        # 是否需要价格匹配
+        needs_price_match = (order.order_type == OrderType.LIMIT and 
+                           order.price is None and 
+                           order.price_match != "NONE")
+        
+        # 验证订单，但允许带有price_match的限价单暂时不提供价格
+        if not needs_price_match and not self.validate_order(order):
+            # 通知订单被拒绝
+            self._notify_order_update(order, "REJECTED")
             return []
+            
+        # 如果是需要价格匹配的限价单，先处理价格匹配
+        if needs_price_match:
+            # 获取订单簿
+            order_book = self.get_order_book(order.symbol)
+            
+            # 检查订单簿深度是否足够进行价格匹配
+            if (order.side == OrderSide.BUY and not order_book.sell_prices and order.price_match.startswith("OPPONENT")) or \
+               (order.side == OrderSide.SELL and not order_book.buy_prices and order.price_match.startswith("OPPONENT")) or \
+               (order.side == OrderSide.BUY and not order_book.buy_prices and order.price_match.startswith("QUEUE")) or \
+               (order.side == OrderSide.SELL and not order_book.sell_prices and order.price_match.startswith("QUEUE")):
+                logger.warning(f"订单簿不足，无法应用价格匹配: {order.order_id}, 匹配模式 {order.price_match}, {order.side.value}")
+                order.status = OrderStatus.REJECTED
+                self._notify_order_update(order, "REJECTED")
+                return []
+                
+            matched_price = self._apply_price_match(order, order_book)
+            
+            if matched_price:
+                order.price = matched_price
+                logger.info(f"价格匹配成功: {order.order_id}, 匹配模式 {order.price_match}, 匹配价格 {matched_price}")
+                
+                # 匹配价格后再次验证订单
+                if not self.validate_order(order):
+                    self._notify_order_update(order, "REJECTED")
+                    return []
+            else:
+                # 提供更详细的拒绝原因
+                if order.price_match.startswith("OPPONENT"):
+                    side_desc = "卖盘" if order.side == OrderSide.BUY else "买盘"
+                    depth_desc = order.price_match.split("_")[1] if "_" in order.price_match else "1"
+                    logger.warning(f"价格匹配失败: {order.order_id}, 匹配模式 {order.price_match}, 原因: {side_desc}深度不足 {depth_desc} 档")
+                elif order.price_match.startswith("QUEUE"):
+                    side_desc = "买盘" if order.side == OrderSide.BUY else "卖盘"
+                    depth_desc = order.price_match.split("_")[1] if "_" in order.price_match else "1"
+                    logger.warning(f"价格匹配失败: {order.order_id}, 匹配模式 {order.price_match}, 原因: {side_desc}深度不足 {depth_desc} 档")
+                else:
+                    logger.warning(f"价格匹配失败: {order.order_id}, 匹配模式 {order.price_match}, 原因: 未知匹配模式")
+                
+                order.status = OrderStatus.REJECTED
+                self._notify_order_update(order, "REJECTED")
+                return []
         
         # 获取订单簿
         order_book = self.get_order_book(order.symbol)
+        
+        # 订单状态通知 - 新订单
+        self._notify_order_update(order, "NEW")
         
         # 尝试撮合
         trades = self._match_order(order, order_book)
         
         # 如果订单未完全成交且非市价单，则加入订单簿
-        if order.remaining_quantity > 0 and order.order_type != OrderType.MARKET:
-            order_book.add_order(order)
+        if order.remaining_quantity > 0:
+            if order.order_type == OrderType.MARKET:
+                # 市价单流动性不足处理
+                # 如果是使用quoteOrderQty的市价单且部分成交，应将状态设为EXPIRED
+                if order.quote_order_qty is not None and order.filled_quantity > 0:
+                    order.status = OrderStatus.EXPIRED
+                    logger.info(f"市价单 {order.order_id} 因流动性不足而过期，已成交: {order.filled_quantity}")
+                    self._notify_order_update(order, "EXPIRED")
+            else:
+                # 非市价单加入订单簿
+                order_book.add_order(order)
+        elif order.status == OrderStatus.FILLED:
+            # 订单完全成交
+            self._notify_order_update(order, "FILLED")
             
         return trades
     
@@ -455,6 +572,9 @@ class MatchingEngine:
         
         # 更新订单状态
         order.cancel()
+        
+        # 通知订单已取消
+        self._notify_order_update(order, "CANCELED")
         
         return True
     
@@ -541,6 +661,18 @@ class MatchingEngine:
         orders_to_match = opposite_orders.copy()
         
         for opposite_order in orders_to_match:
+            # 自成交保护逻辑 - 如果是同一用户的订单
+            if order.user_id and opposite_order.user_id and order.user_id == opposite_order.user_id:
+                # 处理自成交保护
+                if self._handle_self_trade_prevention(order, opposite_order, order_book):
+                    # 如果交易被阻止，继续下一个订单
+                    # 通知状态更新 - 自成交保护导致的订单过期
+                    if order.status == OrderStatus.EXPIRED_IN_MATCH:
+                        self._notify_order_update(order, "EXPIRED_IN_MATCH")
+                    if opposite_order.status == OrderStatus.EXPIRED_IN_MATCH:
+                        self._notify_order_update(opposite_order, "EXPIRED_IN_MATCH")
+                    continue
+            
             # 确定成交数量
             match_quantity = min(order.remaining_quantity, opposite_order.remaining_quantity)
             
@@ -550,6 +682,20 @@ class MatchingEngine:
             # 更新订单状态
             order.fill(match_quantity, match_price)
             opposite_order.fill(match_quantity, match_price)
+            
+            # 通知对手方订单状态更新
+            if opposite_order.status == OrderStatus.FILLED:
+                self._notify_order_update(opposite_order, "FILLED")
+            else:
+                self._notify_order_update(opposite_order, "PARTIALLY_FILLED")
+            
+            # 当前订单的部分成交状态将在place_order方法中统一通知
+            if order.status == OrderStatus.PARTIALLY_FILLED:
+                self._notify_order_update(order, "PARTIALLY_FILLED")
+                
+            # 发送交易更新通知
+            self._notify_order_update(order, "TRADE")
+            self._notify_order_update(opposite_order, "TRADE")
             
             # 生成交易记录
             trade = Trade(
@@ -625,3 +771,203 @@ class MatchingEngine:
                 return trade.price
                 
         return None
+
+    def _handle_self_trade_prevention(self, taker_order: Order, maker_order: Order, order_book: OrderBook) -> bool:
+        """
+        处理自成交保护
+        
+        Parameters
+        ----------
+        taker_order : Order
+            吃单（当前需要撮合的订单）
+        maker_order : Order
+            挂单（已在订单簿中的订单）
+        order_book : OrderBook
+            订单簿
+            
+        Returns
+        -------
+        bool
+            是否阻止交易
+        """
+        # 如果用户ID不匹配，不需要自成交保护
+        if taker_order.user_id != maker_order.user_id:
+            return False
+            
+        logger.info(f"检测到自成交风险: 用户 {taker_order.user_id}, 吃单 {taker_order.order_id}({taker_order.side.value}), " +
+                   f"挂单 {maker_order.order_id}({maker_order.side.value})")
+            
+        # 如果任一订单的自成交保护模式为NONE，允许自成交
+        if taker_order.self_trade_prevention_mode == "NONE" or maker_order.self_trade_prevention_mode == "NONE":
+            logger.info(f"允许自成交: 吃单模式 {taker_order.self_trade_prevention_mode}, 挂单模式 {maker_order.self_trade_prevention_mode}")
+            return False
+            
+        # 根据自成交保护模式处理
+        if taker_order.self_trade_prevention_mode == "EXPIRE_TAKER" or maker_order.self_trade_prevention_mode == "EXPIRE_TAKER":
+            # 取消吃单
+            taker_order.status = OrderStatus.EXPIRED_IN_MATCH
+            logger.info(f"自成交保护: 取消吃单 {taker_order.order_id}, 数量: {taker_order.remaining_quantity}@{taker_order.price}")
+            return True
+            
+        if taker_order.self_trade_prevention_mode == "EXPIRE_MAKER" or maker_order.self_trade_prevention_mode == "EXPIRE_MAKER":
+            # 取消挂单
+            maker_order.status = OrderStatus.EXPIRED_IN_MATCH
+            order_book.remove_order(maker_order.order_id)
+            logger.info(f"自成交保护: 取消挂单 {maker_order.order_id}, 数量: {maker_order.remaining_quantity}@{maker_order.price}")
+            return True
+            
+        if taker_order.self_trade_prevention_mode == "EXPIRE_BOTH" or maker_order.self_trade_prevention_mode == "EXPIRE_BOTH":
+            # 取消双方订单
+            taker_order.status = OrderStatus.EXPIRED_IN_MATCH
+            maker_order.status = OrderStatus.EXPIRED_IN_MATCH
+            order_book.remove_order(maker_order.order_id)
+            logger.info(f"自成交保护: 取消双方订单")
+            logger.info(f"  - 吃单: {taker_order.order_id}, 数量: {taker_order.remaining_quantity}@{taker_order.price}")
+            logger.info(f"  - 挂单: {maker_order.order_id}, 数量: {maker_order.remaining_quantity}@{maker_order.price}")
+            return True
+            
+        # 默认允许自成交
+        logger.warning(f"自成交保护模式未能识别: 吃单 {taker_order.self_trade_prevention_mode}, 挂单 {maker_order.self_trade_prevention_mode}")
+        return False
+
+    def _apply_price_match(self, order: Order, order_book: OrderBook) -> Optional[float]:
+        """
+        应用价格匹配逻辑
+        
+        Parameters
+        ----------
+        order : Order
+            待撮合的订单
+        order_book : OrderBook
+            订单簿
+            
+        Returns
+        -------
+        Optional[float]
+            匹配后的价格，如果匹配失败则返回None
+        """
+        # 获取匹配模式
+        match_mode = order.price_match
+        
+        # 解析价格匹配深度
+        depth = 1  # 默认第一档
+        if "_" in match_mode:
+            try:
+                depth = int(match_mode.split("_")[1])
+                if depth <= 0:
+                    logger.warning(f"无效的价格匹配深度: {depth}，必须大于0")
+                    return None
+            except (ValueError, IndexError):
+                logger.warning(f"无效的价格匹配模式格式: {match_mode}，使用默认第一档")
+        
+        # 对手价模式：买单匹配卖盘，卖单匹配买盘
+        if match_mode == "OPPONENT" or match_mode.startswith("OPPONENT_"):
+            return self._match_opponent_price(order, order_book, depth)
+        
+        # 同向价模式：买单匹配买盘，卖单匹配卖盘
+        elif match_mode == "QUEUE" or match_mode.startswith("QUEUE_"):
+            return self._match_queue_price(order, order_book, depth)
+        
+        # 未知的价格匹配模式
+        else:
+            logger.warning(f"未知的价格匹配模式: {match_mode}")
+            return None
+            
+    def _match_opponent_price(self, order: Order, order_book: OrderBook, depth: int) -> Optional[float]:
+        """
+        匹配对手价
+        
+        Parameters
+        ----------
+        order : Order
+            订单对象
+        order_book : OrderBook
+            订单簿
+        depth : int
+            匹配深度
+            
+        Returns
+        -------
+        Optional[float]
+            匹配价格，失败返回None
+        """
+        if order.side == OrderSide.BUY:
+            # 买单获取卖盘价格
+            if not order_book.sell_prices or len(order_book.sell_prices) < depth:
+                return None
+            return order_book.sell_prices[depth-1]
+        else:
+            # 卖单获取买盘价格
+            if not order_book.buy_prices or len(order_book.buy_prices) < depth:
+                return None
+            return order_book.buy_prices[depth-1]
+            
+    def _match_queue_price(self, order: Order, order_book: OrderBook, depth: int) -> Optional[float]:
+        """
+        匹配同向价
+        
+        Parameters
+        ----------
+        order : Order
+            订单对象
+        order_book : OrderBook
+            订单簿
+        depth : int
+            匹配深度
+            
+        Returns
+        -------
+        Optional[float]
+            匹配价格，失败返回None
+        """
+        if order.side == OrderSide.BUY:
+            # 买单获取买盘价格
+            if not order_book.buy_prices or len(order_book.buy_prices) < depth:
+                return None
+            return order_book.buy_prices[depth-1]
+        else:
+            # 卖单获取卖盘价格
+            if not order_book.sell_prices or len(order_book.sell_prices) < depth:
+                return None
+            return order_book.sell_prices[depth-1]
+
+    def add_order_listener(self, listener: Callable[[Order, str], None]) -> None:
+        """
+        添加订单状态更新监听器
+        
+        Parameters
+        ----------
+        listener : callable
+            监听器函数，接收Order对象和更新类型作为参数
+            更新类型包括: NEW, UPDATE, CANCELED, REJECTED, EXPIRED, FILLED, PARTIALLY_FILLED, EXPIRED_IN_MATCH
+        """
+        self.order_listeners.append(listener)
+        
+    def remove_order_listener(self, listener: Callable) -> None:
+        """
+        移除订单状态更新监听器
+        
+        Parameters
+        ----------
+        listener : callable
+            要移除的监听器函数
+        """
+        if listener in self.order_listeners:
+            self.order_listeners.remove(listener)
+            
+    def _notify_order_update(self, order: Order, update_type: str) -> None:
+        """
+        通知订单状态更新
+        
+        Parameters
+        ----------
+        order : Order
+            更新的订单
+        update_type : str
+            更新类型
+        """
+        for listener in self.order_listeners:
+            try:
+                listener(order, update_type)
+            except Exception as e:
+                logger.error(f"订单监听器异常: {e}")
