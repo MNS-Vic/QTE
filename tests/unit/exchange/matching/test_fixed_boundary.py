@@ -4,6 +4,7 @@
 匹配引擎边界条件修复测试
 """
 import pytest
+from decimal import Decimal
 import uuid
 import time
 from qte.exchange.matching.matching_engine import (
@@ -41,8 +42,8 @@ class TestMatchingEngineBoundaryFixes:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=0.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("0.0"),
             user_id="user1"
         )
         
@@ -69,7 +70,7 @@ class TestMatchingEngineBoundaryFixes:
         trades = matching_engine.place_order(zero_price_buy)
         
         # 检查订单是否被拒绝
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         assert zero_price_buy.status == OrderStatus.REJECTED
         
         # 检查订单是否未加入订单簿
@@ -90,8 +91,8 @@ class TestMatchingEngineBoundaryFixes:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=-100.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("-100.0"),
             user_id="user1"
         )
         
@@ -118,7 +119,7 @@ class TestMatchingEngineBoundaryFixes:
         trades = matching_engine.place_order(negative_price_buy)
         
         # 检查订单是否被拒绝
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         assert negative_price_buy.status == OrderStatus.REJECTED
         
         # 检查订单是否未加入订单簿
@@ -139,8 +140,8 @@ class TestMatchingEngineBoundaryFixes:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.0,
-            price=10000.0,
+            quantity=Decimal("0.0"),
+            price=Decimal("10000.0"),
             user_id="user1"
         )
         
@@ -167,7 +168,7 @@ class TestMatchingEngineBoundaryFixes:
         trades = matching_engine.place_order(zero_qty_buy)
         
         # 检查订单是否被拒绝
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         assert zero_qty_buy.status == OrderStatus.REJECTED
         
         # 恢复原始方法

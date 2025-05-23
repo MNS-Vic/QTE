@@ -5,6 +5,7 @@
 """
 import pytest
 import uuid
+from decimal import Decimal
 
 from qte.exchange.matching.matching_engine import (
     Order, OrderSide, OrderType, OrderStatus
@@ -18,13 +19,13 @@ class TestOrderValidator:
         """测试有效订单的验证"""
         # 创建有效的限价买单
         valid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=50000.0,
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=Decimal('50000.0')
         )
         
         # 验证订单
@@ -32,20 +33,20 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is True
-        assert len(errors) == 0
+        assert len(errors) == Decimal("0")
         assert valid_order.status == OrderStatus.NEW
     
     def test_validate_order_missing_symbol(self):
         """测试缺少交易对的订单验证"""
         # 创建缺少交易对的订单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="",  # 空交易对
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=50000.0,
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=Decimal('50000.0')
         )
         
         # 验证订单
@@ -53,7 +54,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "订单必须指定交易对" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -61,13 +62,13 @@ class TestOrderValidator:
         """测试零数量订单的验证"""
         # 创建零数量的订单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.0,  # 零数量
-            price=50000.0,
-            user_id="test_user"
+            quantity=Decimal('0.0'),  # 零数量
+            price=Decimal('50000.0')
         )
         
         # 验证订单
@@ -75,7 +76,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "订单数量必须大于0" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -83,13 +84,13 @@ class TestOrderValidator:
         """测试负数量订单的验证"""
         # 创建负数量的订单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=-1.0,  # 负数量
-            price=50000.0,
-            user_id="test_user"
+            quantity=Decimal('-1.0'),  # 负数量
+            price=Decimal('50000.0')
         )
         
         # 验证订单
@@ -97,7 +98,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "订单数量必须大于0" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -105,13 +106,13 @@ class TestOrderValidator:
         """测试缺少价格的限价单验证"""
         # 创建缺少价格的限价单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=None,  # 缺少价格
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=None  # 缺少价格
         )
         
         # 验证订单
@@ -119,7 +120,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "限价单必须指定价格" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -127,13 +128,13 @@ class TestOrderValidator:
         """测试零价格限价单验证"""
         # 创建零价格的限价单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=0.0,  # 零价格
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=Decimal('0.0')  # 零价格
         )
         
         # 验证订单
@@ -141,7 +142,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "限价单价格必须大于0" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -149,13 +150,13 @@ class TestOrderValidator:
         """测试负价格限价单验证"""
         # 创建负价格的限价单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=-1.0,  # 负价格
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=Decimal('-1.0')  # 负价格
         )
         
         # 验证订单
@@ -163,7 +164,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "限价单价格必须大于0" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -171,13 +172,13 @@ class TestOrderValidator:
         """测试市价单验证"""
         # 创建有效的市价单
         valid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
-            quantity=1.0,
-            price=None,  # 市价单价格可以是None
-            user_id="test_user"
+            quantity=Decimal('1.0'),
+            price=None  # 市价单价格可以是None
         )
         
         # 验证订单
@@ -185,21 +186,21 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is True
-        assert len(errors) == 0
+        assert len(errors) == Decimal("0")
         assert valid_order.status == OrderStatus.NEW
     
     def test_validate_stop_order_missing_stop_price(self):
         """测试缺少触发价格的止损单验证"""
         # 创建缺少触发价格的止损单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.SELL,
-            order_type=OrderType.STOP,
-            quantity=1.0,
+            order_type=OrderType.STOP_LOSS,  # 修复OrderType
+            quantity=Decimal('1.0'),
             price=None,
-            stop_price=None,  # 缺少触发价格
-            user_id="test_user"
+            stop_price=None  # 缺少触发价格
         )
         
         # 验证订单
@@ -207,7 +208,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "止损单必须指定触发价格" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -215,14 +216,14 @@ class TestOrderValidator:
         """测试止损限价单验证"""
         # 创建有效的止损限价单
         valid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.SELL,
-            order_type=OrderType.STOP_LIMIT,
-            quantity=1.0,
-            price=45000.0,  # 限价
-            stop_price=46000.0,  # 触发价格
-            user_id="test_user"
+            order_type=OrderType.STOP_LOSS_LIMIT,  # 修复OrderType
+            quantity=Decimal('1.0'),
+            price=Decimal('49000.0'),
+            stop_price=Decimal('49500.0')
         )
         
         # 验证订单
@@ -230,21 +231,21 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is True
-        assert len(errors) == 0
+        assert len(errors) == Decimal("0")
         assert valid_order.status == OrderStatus.NEW
     
     def test_validate_stop_limit_order_missing_price(self):
-        """测试缺少限价的止损限价单验证"""
-        # 创建缺少限价的止损限价单
+        """测试缺少价格的止损限价单验证"""
+        # 创建缺少价格的止损限价单
         invalid_order = Order(
+            user_id="test_user",
             order_id=str(uuid.uuid4()),
             symbol="BTC/USDT",
             side=OrderSide.SELL,
-            order_type=OrderType.STOP_LIMIT,
-            quantity=1.0,
-            price=None,  # 缺少限价
-            stop_price=46000.0,
-            user_id="test_user"
+            order_type=OrderType.STOP_LOSS_LIMIT,  # 修复OrderType
+            quantity=Decimal('1.0'),
+            price=None,  # 缺少价格
+            stop_price=Decimal('49500.0')
         )
         
         # 验证订单
@@ -252,7 +253,7 @@ class TestOrderValidator:
         
         # 验证结果
         assert is_valid is False
-        assert len(errors) == 1
+        assert len(errors) == Decimal("1")
         assert "止损限价单必须同时指定触发价格和限价" in errors[0]
         assert invalid_order.status == OrderStatus.REJECTED
     
@@ -266,7 +267,7 @@ class TestOrderValidator:
         
         # 测试符合精度要求的价格
         valid_result, valid_error = OrderValidator.check_price_precision(
-            price=1234.56,
+            price=Decimal("1234.56"),
             symbol="BTC/USDT",
             price_precision=price_precision
         )
@@ -275,7 +276,7 @@ class TestOrderValidator:
         
         # 测试超出精度要求的价格
         invalid_result, invalid_error = OrderValidator.check_price_precision(
-            price=1234.567,
+            price=Decimal("1234.567"),
             symbol="BTC/USDT",
             price_precision=price_precision
         )
@@ -284,7 +285,7 @@ class TestOrderValidator:
         
         # 测试未配置精度的交易对
         unconfigured_result, unconfigured_error = OrderValidator.check_price_precision(
-            price=1234.5678,
+            price=Decimal("1234.5678"),
             symbol="XRP/USDT",
             price_precision=price_precision
         )
@@ -301,7 +302,7 @@ class TestOrderValidator:
         
         # 测试符合精度要求的数量
         valid_result, valid_error = OrderValidator.check_quantity_precision(
-            quantity=1.123456,
+            quantity=Decimal("1.123456"),
             symbol="BTC/USDT",
             quantity_precision=quantity_precision
         )
@@ -310,7 +311,7 @@ class TestOrderValidator:
         
         # 测试超出精度要求的数量
         invalid_result, invalid_error = OrderValidator.check_quantity_precision(
-            quantity=1.12345,
+            quantity=Decimal("1.12345"),
             symbol="ETH/USDT",
             quantity_precision=quantity_precision
         )
@@ -327,8 +328,8 @@ class TestOrderValidator:
         
         # 测试符合最小金额要求的订单
         valid_result, valid_error = OrderValidator.check_min_order_size(
-            price=100.0,
-            quantity=0.2,
+            price=Decimal("100.0"),
+            quantity=Decimal("0.2"),
             symbol="BTC/USDT",
             min_notional=min_notional
         )
@@ -337,8 +338,8 @@ class TestOrderValidator:
         
         # 测试低于最小金额要求的订单
         invalid_result, invalid_error = OrderValidator.check_min_order_size(
-            price=100.0,
-            quantity=0.05,
+            price=Decimal("100.0"),
+            quantity=Decimal("0.05"),
             symbol="BTC/USDT",
             min_notional=min_notional
         )

@@ -65,5 +65,28 @@ cache/
 temp/
 tmp/
 
-# 项目特定
-summary.md  # 已删除的文件 
+# 项目特定临时文件
+fix_*.py
+test_*.py
+*_test.py
+*_debug.py
+simple_test.py
+create_*.py
+start_*.py
+
+# 临时文档
+*_summary.md
+*_roadmap.md
+reflection.md
+*_fixes_*.md
+*_solution.md
+
+# 数据文件
+*.csv
+*.json
+*.pkl
+*.h5
+
+# 系统文件
+.DS_Store
+Thumbs.db 

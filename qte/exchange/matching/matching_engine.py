@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from decimal import Decimal
 
 logger = logging.getLogger("MatchingEngine")
 handler = logging.StreamHandler()
@@ -28,8 +29,11 @@ class OrderType(Enum):
     """订单类型"""
     LIMIT = "LIMIT"        # 限价单
     MARKET = "MARKET"      # 市价单
-    STOP = "STOP"          # 止损单
-    STOP_LIMIT = "STOP_LIMIT"  # 止损限价单
+    STOP_LOSS = "STOP_LOSS"  # Not directly supported by Binance spot, but part of general order types
+    STOP_LOSS_LIMIT = "STOP_LOSS_LIMIT"
+    TAKE_PROFIT = "TAKE_PROFIT" # Not directly supported by Binance spot
+    TAKE_PROFIT_LIMIT = "TAKE_PROFIT_LIMIT"
+    LIMIT_MAKER = "LIMIT_MAKER"
 
 class OrderStatus(Enum):
     """订单状态"""
@@ -40,139 +44,268 @@ class OrderStatus(Enum):
     REJECTED = "REJECTED"  # 已拒绝
     EXPIRED = "EXPIRED"    # 已过期
     EXPIRED_IN_MATCH = "EXPIRED_IN_MATCH"  # 因自成交保护而过期
+    PENDING_CANCEL = "PENDING_CANCEL"
+
+class TimeInForce(Enum):
+    GTC = "GTC"  # Good Til Canceled
+    IOC = "IOC"  # Immediate Or Cancel
+    FOK = "FOK"  # Fill Or Kill
+    # GTD = "GTD"  # Good Til Date (Not supported by Binance Spot)
+    # GTX = "GTX"  # Good Til Crossing (Post Only - similar to LIMIT_MAKER) - Binance uses LIMIT_MAKER type
 
 @dataclass
 class Order:
     """订单类"""
-    order_id: str                      # 订单ID
-    symbol: str                        # 交易对
-    side: OrderSide                    # 订单方向
-    order_type: OrderType              # 订单类型
-    quantity: float                    # 数量
-    price: Optional[float] = None      # 价格（市价单为None）
-    stop_price: Optional[float] = None # 触发价格（止损单）
-    timestamp: float = field(default_factory=time.time)  # 订单时间戳
-    status: OrderStatus = OrderStatus.NEW  # 订单状态
-    filled_quantity: float = 0.0       # 已成交数量
-    remaining_quantity: float = 0.0    # 剩余数量
-    user_id: str = ""                  # 用户ID
-    client_order_id: Optional[str] = None  # 客户端订单ID
-    quote_order_qty: Optional[float] = None  # 报价金额（用于反向市价单）
-    self_trade_prevention_mode: str = "NONE"  # 自成交保护模式: NONE, EXPIRE_TAKER, EXPIRE_MAKER, EXPIRE_BOTH
-    price_match: str = "NONE"          # 价格匹配模式: NONE, OPPONENT, OPPONENT_5, QUEUE, QUEUE_5等
+    # 必需字段 (无默认值)
+    user_id: str
+    symbol: str
+    side: OrderSide
+    order_type: OrderType
+    quantity: float
     
+    # 可选字段 (有默认值)
+    order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    client_order_id: Optional[str] = None
+    time_in_force: Optional[TimeInForce] = None
+    price: Optional[float] = None
+
+    quote_order_qty: Optional[float] = None
+    orig_quote_order_qty: Optional[float] = None
+
+    status: OrderStatus = OrderStatus.NEW
+    executed_quantity: Decimal = Decimal('0.0')
+    cummulative_quote_qty: Decimal = Decimal('0.0')
+    avg_fill_price: Optional[Decimal] = None
+
+    stop_price: Optional[Decimal] = None
+    iceberg_qty: Optional[Decimal] = None
+
+    timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
+    transact_time: Optional[int] = None
+    update_time: Optional[int] = None
+    working_time: Optional[int] = None
+
+    commission: Decimal = Decimal('0.0')
+    commission_asset: Optional[str] = None
+
+    is_maker: bool = False
+    status_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    self_trade_prevention_mode: str = "NONE"  # STP mode
+    price_match: str = "NONE"  # Price match mode
+
     def __post_init__(self):
-        """初始化后设置剩余数量"""
-        if self.remaining_quantity == 0:
-            self.remaining_quantity = self.quantity
+        if isinstance(self.side, str):
+            self.side = OrderSide[self.side.upper()]
+        if isinstance(self.order_type, str):
+            self.order_type = OrderType[self.order_type.upper()]
+        if self.time_in_force and isinstance(self.time_in_force, str):
+            self.time_in_force = TimeInForce[self.time_in_force.upper()]
+        if isinstance(self.status, str):
+            self.status = OrderStatus[self.status.upper()]
+
+        if self.update_time is None:
+            self.update_time = self.timestamp
+        if self.transact_time is None:
+            self.transact_time = self.timestamp
+
+        if not self.status_history:
+            self.status_history.append({"status": self.status.value, "timestamp": self.timestamp})
+            
+        if self.quote_order_qty is not None and self.orig_quote_order_qty is None:
+            self.orig_quote_order_qty = self.quote_order_qty
+
+    def update_status(self, new_status: OrderStatus, update_timestamp: Optional[int] = None):
+        if not isinstance(new_status, OrderStatus):
+            raise ValueError(f"new_status must be an OrderStatus Enum member, got {type(new_status)}")
+        
+        current_ts = update_timestamp if update_timestamp is not None else int(time.time() * 1000)
+        
+        if self.status != new_status or (new_status == OrderStatus.NEW and self.working_time is None):
+            self.status = new_status
+            self.update_time = current_ts
+            self.status_history.append({"status": self.status.value, "timestamp": current_ts})
+
+            if self.status in [OrderStatus.NEW, OrderStatus.PARTIALLY_FILLED] and self.working_time is None:
+                if self.order_type not in [OrderType.MARKET] and \
+                   (self.time_in_force not in [TimeInForce.IOC, TimeInForce.FOK] if self.time_in_force else True):
+                    self.working_time = current_ts
     
-    def fill(self, fill_quantity: float, fill_price: float) -> bool:
+    @property
+    def remaining_quantity(self) -> Decimal:
+        return self.quantity - self.executed_quantity
+
+    def add_fill(self, fill_qty: Decimal, fill_price: Decimal, fill_timestamp: int, commission_paid: Decimal, commission_asset_paid: str, trade_is_maker: bool):
+        if fill_qty <= 0: return
+
+        self.executed_quantity += fill_qty
+        fill_value = fill_qty * fill_price
+        self.cummulative_quote_qty += fill_value
+        
+        if self.executed_quantity > 0:
+            self.avg_fill_price = self.cummulative_quote_qty / self.executed_quantity
+        else:
+            self.avg_fill_price = None
+
+        self.update_time = fill_timestamp
+        self.transact_time = fill_timestamp
+
+        self.commission += commission_paid
+        if self.commission_asset is None:
+            self.commission_asset = commission_asset_paid
+        elif self.commission_asset != commission_asset_paid:
+            logger.warning(f"Order {self.order_id} has mixed commission assets. Current: {self.commission_asset}, New: {commission_asset_paid}")
+
+        self.is_maker = trade_is_maker 
+
+        if self.remaining_quantity <= Decimal('1e-9'):
+            self.update_status(OrderStatus.FILLED, fill_timestamp)
+        else:
+            self.update_status(OrderStatus.PARTIALLY_FILLED, fill_timestamp)
+
+    def to_dict(self) -> Dict[str, Any]:
+        price_str = "0"
+        if self.price is not None:
+            price_str = "{:.8f}".format(self.price).rstrip('0').rstrip('.')
+        elif self.order_type == OrderType.MARKET and self.avg_fill_price is not None: # For filled market orders, show avg price
+            price_str = "{:.8f}".format(self.avg_fill_price).rstrip('0').rstrip('.')
+
+        response_dict = {
+            "symbol": self.symbol,
+            "orderId": self.order_id,
+            "orderListId": -1,
+            "clientOrderId": self.client_order_id,
+            "price": price_str,
+            "origQty": "{:.8f}".format(self.quantity).rstrip('0').rstrip('.'),
+            "executedQty": "{:.8f}".format(self.executed_quantity).rstrip('0').rstrip('.'),
+            "cummulativeQuoteQty": "{:.8f}".format(self.cummulative_quote_qty).rstrip('0').rstrip('.'),
+            "status": self.status.value,
+            "timeInForce": self.time_in_force.value if self.time_in_force else None,
+            "type": self.order_type.value,
+            "side": self.side.value,
+            "stopPrice": "{:.8f}".format(self.stop_price).rstrip('0').rstrip('.') if self.stop_price is not None else "0.0",
+            "icebergQty": "{:.8f}".format(self.iceberg_qty).rstrip('0').rstrip('.') if self.iceberg_qty is not None else "0.0",
+            "time": self.timestamp,
+            "updateTime": self.update_time,
+            "isWorking": self.status in [OrderStatus.NEW, OrderStatus.PARTIALLY_FILLED],
+            "workingTime": self.working_time if self.status in [OrderStatus.NEW, OrderStatus.PARTIALLY_FILLED] else None,
+            "origQuoteOrderQty": "{:.8f}".format(self.orig_quote_order_qty if self.orig_quote_order_qty is not None else 0.0).rstrip('0').rstrip('.'),
+            "transactTime": self.transact_time, # Added for ACK/RESULT/FULL responses
+            "selfTradePreventionMode": self.self_trade_prevention_mode
+        }
+        if self.price_match != "NONE":
+            response_dict["priceMatch"] = self.price_match
+        
+        # For FULL order response, fills would be added here by the logic in rest_server.py
+        # if newOrderRespType == 'FULL': response_dict['fills'] = [trade.to_dict() for trade in associated_trades]
+        return response_dict
+
+    def cancel(self, cancel_time: Optional[int] = None) -> bool:
+        if self.status in [OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED, OrderStatus.PENDING_CANCEL]:
+            logger.warning(f"Order {self.order_id} in status {self.status.value} cannot be canceled.")
+            return False
+        
+        cancel_timestamp = cancel_time if cancel_time is not None else int(time.time() * 1000)
+        self.update_status(OrderStatus.CANCELED, cancel_timestamp)
+        # self.transact_time = cancel_timestamp # For cancel confirmation, update_time is usually sufficient
+        logger.info(f"Order {self.order_id} has been canceled at {cancel_timestamp}.")
+        return True
+
+    def fill(self, quantity, price):
         """
-        订单成交更新
+        简化的填充订单方法，用于测试
         
         Parameters
         ----------
-        fill_quantity : float
+        quantity : float
             成交数量
-        fill_price : float
+        price : float
             成交价格
-            
-        Returns
-        -------
-        bool
-            是否完全成交
         """
-        if fill_quantity <= 0:
-            return False
-            
-        if fill_quantity > self.remaining_quantity:
-            logger.warning(f"成交数量 {fill_quantity} 大于剩余数量 {self.remaining_quantity}")
-            fill_quantity = self.remaining_quantity
-            
-        self.filled_quantity += fill_quantity
-        self.remaining_quantity -= fill_quantity
+        from decimal import Decimal
+        fill_qty = Decimal(str(quantity))
+        fill_price = Decimal(str(price))
         
-        previous_status = self.status
+        # 更新已成交数量
+        self.executed_quantity += fill_qty
         
-        if self.remaining_quantity <= 0:
+        # 更新状态
+        if self.executed_quantity >= Decimal(str(self.quantity)):
             self.status = OrderStatus.FILLED
-            logger.info(f"订单 {self.order_id} 已完全成交")
         else:
             self.status = OrderStatus.PARTIALLY_FILLED
-            logger.info(f"订单 {self.order_id} 部分成交: {fill_quantity}@{fill_price}")
-            
-        return self.status == OrderStatus.FILLED
-    
-    def cancel(self) -> bool:
-        """
-        取消订单
-        
-        Returns
-        -------
-        bool
-            是否成功取消
-        """
-        if self.status in [OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED, OrderStatus.EXPIRED]:
-            logger.warning(f"订单 {self.order_id} 状态为 {self.status}，无法取消")
-            return False
-            
-        self.status = OrderStatus.CANCELED
-        logger.info(f"订单 {self.order_id} 已取消")
-        return True
-        
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        将订单转换为字典，用于API响应
-        
-        Returns
-        -------
-        Dict[str, Any]
-            订单信息字典
-        """
-        # 计算或使用原始报价金额
-        orig_quote_order_qty = None
-        if self.quote_order_qty is not None:
-            # 如果设置了quote_order_qty，直接使用
-            orig_quote_order_qty = str(round(float(self.quote_order_qty), 8))
-        elif self.price is not None and self.quantity > 0:
-            # 否则根据价格和数量计算
-            orig_quote_order_qty = str(round(float(self.price) * float(self.quantity), 8))
-            
-        result = {
-            "orderId": self.order_id,
-            "clientOrderId": self.client_order_id,
-            "symbol": self.symbol,
-            "price": str(self.price) if self.price is not None else None,
-            "origQty": str(self.quantity),
-            "executedQty": str(self.filled_quantity),
-            "status": self.status.value,
-            "type": self.order_type.value,
-            "side": self.side.value,
-            "time": int(self.timestamp * 1000),  # 毫秒时间戳
-            "origQuoteOrderQty": orig_quote_order_qty,  # 原始报价金额
-            "selfTradePreventionMode": self.self_trade_prevention_mode  # 自成交保护模式
-        }
-        
-        # 只有在非NONE模式下才添加priceMatch字段
-        if self.price_match != "NONE":
-            result["priceMatch"] = self.price_match
-            
-        return result
+
+    @property
+    def filled_quantity(self) -> Decimal:
+        """获取已成交数量，与executed_quantity等价"""
+        return self.executed_quantity
+
+    @filled_quantity.setter
+    def filled_quantity(self, value):
+        """设置已成交数量"""
+        self.executed_quantity = Decimal(str(value))
 
 @dataclass
 class Trade:
     """交易类，表示一次成交"""
-    trade_id: str                  # 交易ID
-    symbol: str                    # 交易对
-    buy_order_id: str              # 买方订单ID
-    sell_order_id: str             # 卖方订单ID
-    price: float                   # 成交价格
-    quantity: float                # 成交数量
-    timestamp: float = field(default_factory=time.time)  # 成交时间戳
-    buyer_user_id: Optional[str] = None  # 买方用户ID
-    seller_user_id: Optional[str] = None  # 卖方用户ID
-    fee: Optional[float] = None    # 手续费
-    fee_asset: Optional[str] = None  # 手续费资产
+    # 必需字段 (无默认值)
+    user_id: str # User ID of the party involved in this trade (could be buyer or seller for this specific trade object)
+    order_id: str  # ID of the order that generated this trade
+    symbol: str
+    price: Decimal
+    quantity: Decimal  # Quantity of the base asset traded
+    quote_qty: Decimal # Calculated as price * quantity
+    side: OrderSide # Side of the order that generated this trade (e.g. if order was BUY, this trade is a BUY)
+    commission: Decimal
+    commission_asset: str
+    is_maker: bool # True if this trade was a result of a maker order (resting on book)
+    id: int  # Trade ID - now using integer instead of UUID
+    
+    # 可选字段 (有默认值)
+    timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    # Optional linking to the counter-party trade/order if needed for advanced analysis
+    # counter_order_id: Optional[str] = None
+    # counter_user_id: Optional[str] = None
+
+    def __post_init__(self):
+        if isinstance(self.side, str):
+            self.side = OrderSide[self.side.upper()]
+        # Ensure quote_qty is calculated if not provided, though it should be.
+        if self.quote_qty is None and self.price is not None and self.quantity is not None:
+             self.quote_qty = self.price * self.quantity
+
+    def to_dict(self, perspective_user_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Converts the trade to a dictionary suitable for API responses (Binance 'myTrades' like).
+        'perspective_user_id' helps determine 'isBuyer' field correctly if this Trade object is generic.
+        If this Trade object always represents the trade from self.user_id's perspective, then
+        isBuyer can be determined directly from self.side.
+        """
+        is_buyer = False
+        if perspective_user_id is not None: # If a specific user's view is requested
+            if self.user_id == perspective_user_id:
+                is_buyer = (self.side == OrderSide.BUY)
+            # else: # This trade belongs to the counterparty, infer their side if needed
+            #    is_buyer = (self.side == OrderSide.SELL) # if my side was SELL, then counterparty was BUYER
+        else: # Default: assume the perspective is of self.user_id stored in the trade
+             is_buyer = (self.side == OrderSide.BUY)
+
+        return {
+            "symbol": self.symbol,
+            "id": self.id,  # Trade ID
+            "orderId": self.order_id,
+            # "orderListId": -1, # If OCO orders are involved
+            "price": "{:.8f}".format(self.price).rstrip('0').rstrip('.'),
+            "qty": "{:.8f}".format(self.quantity).rstrip('0').rstrip('.'),
+            "quoteQty": "{:.8f}".format(self.quote_qty).rstrip('0').rstrip('.'),
+            "commission": "{:.8f}".format(self.commission).rstrip('0').rstrip('.'),
+            "commissionAsset": self.commission_asset,
+            "time": self.timestamp,
+            "isBuyer": is_buyer,
+            "isMaker": self.is_maker,
+            "isBestMatch": True,  # Placeholder, assume all our matches are best matches for now
+        }
 
 class OrderBook:
     """订单簿类，管理买卖订单"""
@@ -383,7 +516,28 @@ class MatchingEngine:
         self.trade_listeners = []  # 成交监听器
         self.order_listeners = []  # 订单状态更新监听器
         
+        # 添加订单历史存储
+        self.order_history: Dict[str, Order] = {}  # 所有订单历史，order_id -> Order
+        self.user_orders: Dict[str, List[str]] = {}  # 用户订单索引，user_id -> [order_id]
+        self.client_order_index: Dict[str, Dict[str, str]] = {}  # client_order_id索引，user_id -> {client_order_id -> order_id}
+        
+        # 添加交易ID计数器
+        self.trade_id_counter: int = 1  # 从1开始的递增整数ID
+        
         logger.info("撮合引擎已初始化")
+    
+    def _get_next_trade_id(self) -> int:
+        """
+        获取下一个交易ID
+        
+        Returns
+        -------
+        int
+            递增的整数交易ID
+        """
+        trade_id = self.trade_id_counter
+        self.trade_id_counter += 1
+        return trade_id
     
     def get_order_book(self, symbol: str) -> OrderBook:
         """
@@ -464,6 +618,9 @@ class MatchingEngine:
         """
         logger.info(f"收到订单: {order.order_id}, {order.side.value}, {order.quantity}@{order.price}")
         
+        # 立即将订单存储到历史记录中
+        self._store_order_in_history(order)
+        
         # 是否需要价格匹配
         needs_price_match = (order.order_type == OrderType.LIMIT and 
                            order.price is None and 
@@ -531,9 +688,9 @@ class MatchingEngine:
             if order.order_type == OrderType.MARKET:
                 # 市价单流动性不足处理
                 # 如果是使用quoteOrderQty的市价单且部分成交，应将状态设为EXPIRED
-                if order.quote_order_qty is not None and order.filled_quantity > 0:
+                if order.quote_order_qty is not None and order.executed_quantity > 0:
                     order.status = OrderStatus.EXPIRED
-                    logger.info(f"市价单 {order.order_id} 因流动性不足而过期，已成交: {order.filled_quantity}")
+                    logger.info(f"市价单 {order.order_id} 因流动性不足而过期，已成交: {order.executed_quantity}")
                     self._notify_order_update(order, "EXPIRED")
             else:
                 # 非市价单加入订单簿
@@ -544,7 +701,7 @@ class MatchingEngine:
             
         return trades
     
-    def cancel_order(self, order_id: str, symbol: str) -> bool:
+    def cancel_order(self, order_id: str, symbol: Optional[str] = None) -> bool:
         """
         取消订单
         
@@ -552,31 +709,38 @@ class MatchingEngine:
         ----------
         order_id : str
             订单ID
-        symbol : str
-            交易对
+        symbol : Optional[str], optional
+            交易对, by default None (现在从order对象获取)
             
         Returns
         -------
         bool
             是否成功取消
         """
-        order_book = self.get_order_book(symbol)
-        order = order_book.get_order(order_id)
+        # 使用新的get_order方法查找订单
+        order = self.get_order(order_id)
         
         if not order:
             logger.warning(f"订单 {order_id} 不存在")
             return False
+        
+        # 如果提供了symbol参数，验证是否匹配
+        if symbol and order.symbol != symbol:
+            logger.warning(f"订单 {order_id} 的交易对 {order.symbol} 与请求的 {symbol} 不匹配")
+            return False
             
-        # 从订单簿移除
-        order_book.remove_order(order_id)
+        # 获取订单簿并尝试从中移除（如果订单在订单簿中）
+        order_book = self.get_order_book(order.symbol)
+        removed_order = order_book.remove_order(order_id)
         
         # 更新订单状态
-        order.cancel()
+        success = order.cancel()
         
-        # 通知订单已取消
-        self._notify_order_update(order, "CANCELED")
+        if success:
+            # 通知订单已取消
+            self._notify_order_update(order, "CANCELED")
         
-        return True
+        return success
     
     def _match_order(self, order: Order, order_book: OrderBook) -> List[Trade]:
         """
@@ -599,7 +763,7 @@ class MatchingEngine:
         # 买单和卖单分别处理
         if order.side == OrderSide.BUY:
             # 买单与卖单簿撮合
-            while order.remaining_quantity > 0:
+            while order.remaining_quantity > 0 and order.status not in [OrderStatus.EXPIRED_IN_MATCH, OrderStatus.CANCELED, OrderStatus.REJECTED]:
                 # 没有卖单或卖单价格高于买单价格，终止撮合
                 if not order_book.sell_prices or (order.order_type == OrderType.LIMIT and order_book.sell_prices[0] > order.price):
                     break
@@ -609,14 +773,20 @@ class MatchingEngine:
                 sell_orders = order_book.sell_orders[best_price]
                 
                 # 与该价格的卖单逐一撮合
-                trades.extend(self._match_with_orders(order, sell_orders, order_book, best_price))
+                new_trades = self._match_with_orders(order, sell_orders, order_book, best_price)
+                trades.extend(new_trades)
                 
-                # 如果订单已完全成交，终止撮合
-                if order.remaining_quantity <= 0:
+                # 如果订单已完全成交或因自成交保护被过期，终止撮合
+                if order.remaining_quantity <= 0 or order.status == OrderStatus.EXPIRED_IN_MATCH:
                     break
+                    
+                # 防护措施: 如果没有产生任何新交易且订单簿状态没有变化，退出防止无限循环
+                if not new_trades and order_book.sell_prices and order_book.sell_prices[0] == best_price:
+                    break
+                    
         else:
             # 卖单与买单簿撮合
-            while order.remaining_quantity > 0:
+            while order.remaining_quantity > 0 and order.status not in [OrderStatus.EXPIRED_IN_MATCH, OrderStatus.CANCELED, OrderStatus.REJECTED]:
                 # 没有买单或买单价格低于卖单价格，终止撮合
                 if not order_book.buy_prices or (order.order_type == OrderType.LIMIT and order_book.buy_prices[0] < order.price):
                     break
@@ -626,10 +796,15 @@ class MatchingEngine:
                 buy_orders = order_book.buy_orders[best_price]
                 
                 # 与该价格的买单逐一撮合
-                trades.extend(self._match_with_orders(order, buy_orders, order_book, best_price))
+                new_trades = self._match_with_orders(order, buy_orders, order_book, best_price)
+                trades.extend(new_trades)
                 
-                # 如果订单已完全成交，终止撮合
-                if order.remaining_quantity <= 0:
+                # 如果订单已完全成交或因自成交保护被过期，终止撮合
+                if order.remaining_quantity <= 0 or order.status == OrderStatus.EXPIRED_IN_MATCH:
+                    break
+                    
+                # 防护措施: 如果没有产生任何新交易且订单簿状态没有变化，退出防止无限循环
+                if not new_trades and order_book.buy_prices and order_book.buy_prices[0] == best_price:
                     break
                     
         return trades
@@ -678,45 +853,82 @@ class MatchingEngine:
             
             if match_quantity <= 0:
                 continue
-                
-            # 更新订单状态
-            order.fill(match_quantity, match_price)
-            opposite_order.fill(match_quantity, match_price)
             
-            # 通知对手方订单状态更新
-            if opposite_order.status == OrderStatus.FILLED:
-                self._notify_order_update(opposite_order, "FILLED")
+            fill_timestamp = int(time.time() * 1000)
+            
+            # 确定maker和taker
+            # 已在订单簿中的订单是maker，新进入的订单是taker
+            taker_order = order
+            maker_order = opposite_order
+            
+            # 转换match_price为Decimal类型以确保精度
+            match_price_decimal = Decimal(str(match_price))
+            
+            # 计算commission
+            # 佣金率：买方按USDT计算，卖方按BTC计算
+            commission_rate = Decimal('0.001')  # 0.1%
+            
+            if taker_order.side == OrderSide.BUY:
+                # 买方付出USDT，佣金用USDT计算
+                taker_commission = match_quantity * match_price_decimal * commission_rate
+                taker_commission_asset = taker_order.symbol[-4:] if taker_order.symbol.endswith('USDT') else taker_order.symbol[3:]  # 简化，假设为USDT
+                maker_commission = match_quantity * commission_rate
+                maker_commission_asset = maker_order.symbol[:3] if maker_order.symbol.endswith('USDT') else maker_order.symbol[:-3]  # 简化，假设为BTC
             else:
-                self._notify_order_update(opposite_order, "PARTIALLY_FILLED")
+                # 卖方卖出BTC，佣金用BTC计算
+                taker_commission = match_quantity * commission_rate  
+                taker_commission_asset = taker_order.symbol[:3] if taker_order.symbol.endswith('USDT') else taker_order.symbol[:-3]  # 简化，假设为BTC
+                maker_commission = match_quantity * match_price_decimal * commission_rate
+                maker_commission_asset = maker_order.symbol[-4:] if maker_order.symbol.endswith('USDT') else maker_order.symbol[3:]  # 简化，假设为USDT
             
-            # 当前订单的部分成交状态将在place_order方法中统一通知
-            if order.status == OrderStatus.PARTIALLY_FILLED:
-                self._notify_order_update(order, "PARTIALLY_FILLED")
-                
-            # 发送交易更新通知
-            self._notify_order_update(order, "TRADE")
-            self._notify_order_update(opposite_order, "TRADE")
+            # 更新订单成交信息
+            taker_order.add_fill(match_quantity, match_price_decimal, fill_timestamp, taker_commission, taker_commission_asset, False)  # taker不是maker
+            maker_order.add_fill(match_quantity, match_price_decimal, fill_timestamp, maker_commission, maker_commission_asset, True)   # maker是maker
             
-            # 生成交易记录
-            trade = Trade(
-                trade_id=str(uuid.uuid4()),
-                symbol=order.symbol,
-                buy_order_id=order.order_id if order.side == OrderSide.BUY else opposite_order.order_id,
-                sell_order_id=order.order_id if order.side == OrderSide.SELL else opposite_order.order_id,
-                price=match_price,
+            # 生成交易记录 - 为每个参与方创建单独的Trade对象
+            # Taker方的交易记录
+            taker_trade = Trade(
+                user_id=taker_order.user_id,
+                order_id=taker_order.order_id,
+                symbol=taker_order.symbol,
+                price=match_price_decimal,
                 quantity=match_quantity,
-                buyer_user_id=order.user_id if order.side == OrderSide.BUY else opposite_order.user_id,
-                seller_user_id=order.user_id if order.side == OrderSide.SELL else opposite_order.user_id
+                quote_qty=match_quantity * match_price_decimal,
+                side=taker_order.side,
+                commission=taker_commission,
+                commission_asset=taker_commission_asset,
+                is_maker=False,
+                id=self._get_next_trade_id(),
+                timestamp=fill_timestamp
             )
             
-            trades.append(trade)
-            self.trades.append(trade)
+            # Maker方的交易记录
+            maker_trade = Trade(
+                user_id=maker_order.user_id,
+                order_id=maker_order.order_id,
+                symbol=maker_order.symbol,
+                price=match_price_decimal,
+                quantity=match_quantity,
+                quote_qty=match_quantity * match_price_decimal,
+                side=maker_order.side,
+                commission=maker_commission,
+                commission_asset=maker_commission_asset,
+                is_maker=True,
+                id=self._get_next_trade_id(),
+                timestamp=fill_timestamp
+            )
+            
+            trades.extend([taker_trade, maker_trade])
+            self.trades.extend([taker_trade, maker_trade])
             
             # 通知监听器
             for listener in self.trade_listeners:
-                listener(trade)
+                listener(taker_trade)
+                listener(maker_trade)
             
-            logger.info(f"成交: {trade.quantity}@{trade.price}, 买单:{trade.buy_order_id}, 卖单:{trade.sell_order_id}")
+            logger.info(f"成交: {match_quantity}@{match_price}, " +
+                       f"Taker:{taker_order.order_id}({taker_order.side.value}), " +
+                       f"Maker:{maker_order.order_id}({maker_order.side.value})")
             
             # 如果对手方订单已完全成交，从订单簿移除
             if opposite_order.status == OrderStatus.FILLED:
@@ -971,3 +1183,134 @@ class MatchingEngine:
                 listener(order, update_type)
             except Exception as e:
                 logger.error(f"订单监听器异常: {e}")
+
+    def get_order(self, order_id: str) -> Optional[Order]:
+        """
+        获取订单（包括历史订单）
+        
+        Parameters
+        ----------
+        order_id : str
+            订单ID
+            
+        Returns
+        -------
+        Optional[Order]
+            订单对象，如不存在则返回None
+        """
+        # 先查订单簿中的活跃订单
+        for order_book in self.order_books.values():
+            order = order_book.get_order(order_id)
+            if order:
+                return order
+        
+        # 再查历史订单
+        return self.order_history.get(order_id)
+    
+    def get_order_by_client_id(self, user_id: str, client_order_id: str) -> Optional[Order]:
+        """
+        根据客户端订单ID获取订单
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID
+        client_order_id : str
+            客户端订单ID
+            
+        Returns
+        -------
+        Optional[Order]
+            订单对象，如不存在则返回None
+        """
+        user_client_orders = self.client_order_index.get(user_id, {})
+        order_id = user_client_orders.get(client_order_id)
+        if order_id:
+            return self.get_order(order_id)
+        return None
+    
+    def get_best_bid(self, symbol: str) -> Optional[float]:
+        """
+        获取指定交易对的最高买价
+        
+        Parameters
+        ----------
+        symbol : str
+            交易对
+            
+        Returns
+        -------
+        Optional[float]
+            最高买价，无买单时返回None
+        """
+        if symbol not in self.order_books:
+            return None
+        return self.order_books[symbol].get_best_bid()
+    
+    def get_best_ask(self, symbol: str) -> Optional[float]:
+        """
+        获取指定交易对的最低卖价
+        
+        Parameters
+        ----------
+        symbol : str
+            交易对
+            
+        Returns
+        -------
+        Optional[float]
+            最低卖价，无卖单时返回None
+        """
+        if symbol not in self.order_books:
+            return None
+        return self.order_books[symbol].get_best_ask()
+    
+    def get_all_user_orders(self, user_id: str, symbol: Optional[str] = None) -> List[Order]:
+        """
+        获取用户所有订单（包括历史）
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID
+        symbol : Optional[str], optional
+            交易对过滤, by default None
+            
+        Returns
+        -------
+        List[Order]
+            订单列表
+        """
+        user_order_ids = self.user_orders.get(user_id, [])
+        orders = []
+        
+        for order_id in user_order_ids:
+            order = self.get_order(order_id)
+            if order and (symbol is None or order.symbol == symbol):
+                orders.append(order)
+        
+        return orders
+    
+    def _store_order_in_history(self, order: Order):
+        """
+        将订单存储到历史记录中
+        
+        Parameters
+        ----------
+        order : Order
+            订单对象
+        """
+        # 存储到全局订单历史
+        self.order_history[order.order_id] = order
+        
+        # 更新用户订单索引
+        if order.user_id not in self.user_orders:
+            self.user_orders[order.user_id] = []
+        if order.order_id not in self.user_orders[order.user_id]:
+            self.user_orders[order.user_id].append(order.order_id)
+        
+        # 更新客户端订单ID索引
+        if order.client_order_id:
+            if order.user_id not in self.client_order_index:
+                self.client_order_index[order.user_id] = {}
+            self.client_order_index[order.user_id][order.client_order_id] = order.order_id

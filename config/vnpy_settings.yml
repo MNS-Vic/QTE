@@ -1,0 +1,153 @@
+# QTE vnpy集成配置文件
+# 
+# 正确的数据流架构：
+# 外部数据源 → QTE虚拟交易所 → vnpy Gateway → 策略层
+
+# 网关配置
+gateways:
+  # QTE Binance现货网关 (主要配置 - 连接虚拟交易所)
+  QTE_BINANCE_SPOT:
+    class_name: "QTEBinanceSpotGateway"
+    module_path: "qte.vnpy.gateways.binance_spot"
+    settings:
+      API密钥: "qte_test_key"     # 虚拟交易所测试密钥
+      私钥: "qte_test_secret"     # 虚拟交易所测试私钥  
+      服务器: "QTE_MOCK"          # 连接QTE虚拟交易所 (localhost:5000)
+      代理地址: ""
+      代理端口: 0
+    description: "连接QTE虚拟交易所，从中获取行情和交易数据"
+    
+  # 真实Binance现货网关（仅用于特殊情况）
+  BINANCE_SPOT_REAL:
+    class_name: "QTEBinanceSpotGateway"
+    module_path: "qte.vnpy.gateways.binance_spot"
+    settings:
+      API密钥: ""                 # 生产环境API密钥（请填入真实值）
+      私钥: ""                   # 生产环境私钥（请填入真实值）
+      服务器: "REAL"              # 直连真实Binance API
+      代理地址: ""
+      代理端口: 0
+    description: "直接连接真实Binance API，仅用于特殊用途"
+    
+  # Binance测试网网关
+  BINANCE_SPOT_TESTNET:
+    class_name: "QTEBinanceSpotGateway"
+    module_path: "qte.vnpy.gateways.binance_spot"
+    settings:
+      API密钥: ""                 # 测试网API密钥
+      私钥: ""                   # 测试网私钥
+      服务器: "TESTNET"           # Binance测试网
+      代理地址: ""
+      代理端口: 0
+    description: "连接Binance测试网，用于开发测试"
+
+# 数据源配置
+data_sources:
+  # vnpy数据源 (主要配置)
+  vnpy_source:
+    class_name: "VnpyDataSource"
+    module_path: "qte.vnpy.data_source"
+    gateway_names:
+      - "QTE_BINANCE_SPOT"       # 使用虚拟交易所网关
+    virtual_exchange_host: "localhost:5000"  # QTE虚拟交易所地址
+    settings:
+      cache_size: 10000
+      reconnect_interval: 30
+      heartbeat_interval: 10
+    description: "通过vnpy Gateway从QTE虚拟交易所获取数据"
+
+# QTE虚拟交易所配置
+virtual_exchange:
+  # 服务器配置
+  server:
+    host: "localhost"
+    port: 5000
+    websocket_port: 5001
+    
+  # 数据源配置 (虚拟交易所从这些源获取数据)
+  data_sources:
+    # 实时数据源
+    real_time:
+      binance_api:
+        enabled: true
+        api_key: ""             # Binance API密钥（虚拟交易所使用）
+        secret_key: ""          # Binance私钥（虚拟交易所使用）
+        base_url: "https://api.binance.com"
+        websocket_url: "wss://stream.binance.com:9443"
+        symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+        
+    # 历史数据源  
+    historical:
+      csv_data:
+        enabled: true
+        data_directory: "data/sample"
+        file_format: "csv"
+        
+    # 模拟数据源
+    simulation:
+      enabled: true
+      price_volatility: 0.01
+      update_interval: 1000  # 毫秒
+
+# 交易配置
+trading:
+  # 默认交易设置
+  default_settings:
+    commission_rate: 0.001  # 手续费率
+    slippage: 0.0001       # 滑点
+    min_order_size: 0.001  # 最小订单量
+    
+  # 风险控制
+  risk_management:
+    max_order_size: 1000   # 最大单笔订单量
+    max_daily_trades: 100  # 每日最大交易次数
+    max_position_ratio: 0.1  # 最大持仓比例
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: "logs/vnpy_integration.log"
+  max_file_size: "10MB"
+  backup_count: 5
+
+# 监控配置
+monitoring:
+  # 性能监控
+  performance:
+    enable: true
+    metrics_interval: 60  # 秒
+    
+  # 连接监控
+  connection:
+    enable: true
+    check_interval: 30  # 秒
+    timeout: 10  # 秒
+    
+  # 数据质量监控
+  data_quality:
+    enable: true
+    check_interval: 300  # 秒
+
+# 环境配置
+environment:
+  # 开发环境 (推荐配置)
+  development:
+    debug: true
+    mock_trading: true          # 使用虚拟交易所
+    data_replay: false
+    virtual_exchange: true      # 启用虚拟交易所
+    
+  # 测试环境
+  testing:
+    debug: false
+    mock_trading: true          # 使用虚拟交易所
+    data_replay: true           # 启用数据回放
+    virtual_exchange: true      # 启用虚拟交易所
+    
+  # 生产环境
+  production:
+    debug: false
+    mock_trading: false         # 可选择真实交易
+    data_replay: false
+    virtual_exchange: false     # 可选择禁用虚拟交易所 

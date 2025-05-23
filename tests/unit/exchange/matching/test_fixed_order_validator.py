@@ -26,8 +26,8 @@ class TestOrderValidator:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            price=10000.0,
-            quantity=1.5
+            price=Decimal("10000.0"),
+            quantity=Decimal("1.5")
         )
         
         # 验证订单
@@ -46,7 +46,7 @@ class TestOrderValidator:
             symbol="BTCUSDT",
             side=OrderSide.SELL,
             order_type=OrderType.MARKET,
-            quantity=1.5
+            quantity=Decimal("1.5")
         )
         
         # 验证订单
@@ -65,8 +65,8 @@ class TestOrderValidator:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            price=-100.0,  # 负价格
-            quantity=1.5
+            price=Decimal("-100.0"),  # 负价格
+            quantity=Decimal("1.5")
         )
         
         # 直接测试价格验证方法
@@ -85,8 +85,8 @@ class TestOrderValidator:
             symbol="BTCUSDT",
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            price=10000.0,
-            quantity=0  # 零数量
+            price=Decimal("10000.0"),
+            quantity=Decimal("0")  # 零数量
         )
         
         # 验证订单
@@ -108,8 +108,8 @@ class TestOrderValidator:
             symbol="",  # 空交易对
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            price=10000.0,
-            quantity=1.5
+            price=Decimal("10000.0"),
+            quantity=Decimal("1.5")
         )
         
         # 验证订单
@@ -132,7 +132,7 @@ class TestOrderValidator:
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
             price=None,  # 无价格
-            quantity=1.5
+            quantity=Decimal("1.5")
         )
         
         # 验证订单

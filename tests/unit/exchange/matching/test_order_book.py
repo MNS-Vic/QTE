@@ -5,6 +5,7 @@ OrderBook单元测试
 """
 import pytest
 import uuid
+from decimal import Decimal
 from qte.exchange.matching.matching_engine import OrderBook, Order, OrderSide, OrderType, OrderStatus
 
 class TestOrderBook:
@@ -24,33 +25,35 @@ class TestOrderBook:
     def buy_order(self, symbol):
         """创建买单"""
         return Order(
+            user_id="test_user_1",
             order_id=str(uuid.uuid4()),
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0
+            quantity=Decimal('1.0'),
+            price=Decimal('10000.0')
         )
     
     @pytest.fixture
     def sell_order(self, symbol):
         """创建卖单"""
         return Order(
+            user_id="test_user_2",
             order_id=str(uuid.uuid4()),
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10100.0
+            quantity=Decimal('1.0'),
+            price=Decimal('10100.0')
         )
     
     def test_create_order_book(self, symbol, order_book):
         """测试创建OrderBook (OB-001)"""
         assert order_book.symbol == symbol
-        assert len(order_book.buy_orders) == 0
-        assert len(order_book.sell_orders) == 0
-        assert len(order_book.buy_prices) == 0
-        assert len(order_book.sell_prices) == 0
+        assert len(order_book.buy_orders) == Decimal("0")
+        assert len(order_book.sell_orders) == Decimal("0")
+        assert len(order_book.buy_prices) == Decimal("0")
+        assert len(order_book.sell_prices) == Decimal("0")
     
     def test_add_buy_order(self, order_book, buy_order):
         """测试添加买单 (OB-002)"""
@@ -82,7 +85,7 @@ class TestOrderBook:
         removed_order = order_book.remove_order(buy_order.order_id)
         assert removed_order is buy_order
         assert buy_order.order_id not in order_book.order_map
-        assert len(order_book.buy_orders.get(buy_order.price, [])) == 0
+        assert len(order_book.buy_orders.get(buy_order.price, [])) == Decimal("0")
         
         # 测试移除不存在的订单
         assert order_book.remove_order("non_existent_id") is None
@@ -105,32 +108,34 @@ class TestOrderBook:
         
         # 添加买单
         buy_order1 = Order(
+            user_id="test_user_1",
             order_id=str(uuid.uuid4()),
             symbol=order_book.symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0
+            quantity=Decimal('1.0'),
+            price=Decimal('10000.0')
         )
         
         buy_order2 = Order(
+            user_id="test_user_2",
             order_id=str(uuid.uuid4()),
             symbol=order_book.symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10050.0  # 更高价格
+            quantity=Decimal('1.0'),
+            price=Decimal('10050.0')  # 更高价格
         )
         
         order_book.add_order(buy_order1)
-        assert order_book.get_best_bid() == 10000.0
+        assert order_book.get_best_bid() == Decimal('10000.0')
         
         order_book.add_order(buy_order2)
-        assert order_book.get_best_bid() == 10050.0  # 最高买价
+        assert order_book.get_best_bid() == Decimal('10050.0')  # 最高买价
         
         # 移除更高的价格
         order_book.remove_order(buy_order2.order_id)
-        assert order_book.get_best_bid() == 10000.0
+        assert order_book.get_best_bid() == Decimal('10000.0')
         
     def test_get_best_ask(self, order_book):
         """测试获取最佳卖价 (OB-007)"""
@@ -139,32 +144,34 @@ class TestOrderBook:
         
         # 添加卖单
         sell_order1 = Order(
+            user_id="test_user_1",
             order_id=str(uuid.uuid4()),
             symbol=order_book.symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10100.0
+            quantity=Decimal('1.0'),
+            price=Decimal('10100.0')
         )
         
         sell_order2 = Order(
+            user_id="test_user_2",
             order_id=str(uuid.uuid4()),
             symbol=order_book.symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10050.0  # 更低价格
+            quantity=Decimal('1.0'),
+            price=Decimal('10050.0')  # 更低价格
         )
         
         order_book.add_order(sell_order1)
-        assert order_book.get_best_ask() == 10100.0
+        assert order_book.get_best_ask() == Decimal('10100.0')
         
         order_book.add_order(sell_order2)
-        assert order_book.get_best_ask() == 10050.0  # 最低卖价
+        assert order_book.get_best_ask() == Decimal('10050.0')  # 最低卖价
         
         # 移除更低的价格
         order_book.remove_order(sell_order2.order_id)
-        assert order_book.get_best_ask() == 10100.0
+        assert order_book.get_best_ask() == Decimal('10100.0')
         
     def test_get_depth(self, order_book):
         """测试获取深度数据 (OB-008)"""
@@ -173,30 +180,32 @@ class TestOrderBook:
         
         # 空订单簿
         depth = order_book.get_depth()
-        assert len(depth["bids"]) == 0
-        assert len(depth["asks"]) == 0
+        assert len(depth["bids"]) == Decimal("0")
+        assert len(depth["asks"]) == Decimal("0")
         
         # 添加买单和卖单
-        buy_prices = [10000.0, 9990.0, 9980.0, 9970.0, 9960.0]
+        buy_prices = [Decimal('10000.0'), Decimal('9990.0'), Decimal('9980.0'), Decimal('9970.0'), Decimal('9960.0')]
         for i, price in enumerate(buy_prices):
             buy_order = Order(
+                user_id=f"buy_user_{i}",
                 order_id=f"buy_{i}",
                 symbol=order_book.symbol,
                 side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal('1.0'),
                 price=price
             )
             order_book.add_order(buy_order)
             
-        sell_prices = [10100.0, 10110.0, 10120.0, 10130.0, 10140.0]
+        sell_prices = [Decimal('10100.0'), Decimal('10110.0'), Decimal('10120.0'), Decimal('10130.0'), Decimal('10140.0')]
         for i, price in enumerate(sell_prices):
             sell_order = Order(
+                user_id=f"sell_user_{i}",
                 order_id=f"sell_{i}",
                 symbol=order_book.symbol,
                 side=OrderSide.SELL,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal('1.0'),
                 price=price
             )
             order_book.add_order(sell_order)
@@ -205,8 +214,8 @@ class TestOrderBook:
         depth = order_book.get_depth(levels=3)
         
         # 应该有3个价格级别
-        assert len(depth["bids"]) == 3
-        assert len(depth["asks"]) == 3
+        assert len(depth["bids"]) == Decimal("3")
+        assert len(depth["asks"]) == Decimal("3")
 
         # 注意：我们不检查具体的排序，只确认数量正确
         # 并检查所有价格是否在原始价格列表中
@@ -224,15 +233,16 @@ class TestOrderBook:
         # 这里我们采用更灵活的测试方法
         
         # 添加不同价格的买单
-        buy_prices = [10050.0, 10020.0, 10080.0, 10010.0, 10030.0]
+        buy_prices = [Decimal('10050.0'), Decimal('10020.0'), Decimal('10080.0'), Decimal('10010.0'), Decimal('10030.0')]
         
         for i, price in enumerate(buy_prices):
             buy_order = Order(
+                user_id=f"buy_user_{i}",
                 order_id=f"buy_{i}",
                 symbol=order_book.symbol,
                 side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal('1.0'),
                 price=price
             )
             order_book.add_order(buy_order)
@@ -245,14 +255,15 @@ class TestOrderBook:
         assert len(order_book.buy_prices) == len(buy_prices)
         
         # 添加不同价格的卖单
-        sell_prices = [10150.0, 10120.0, 10180.0, 10110.0, 10130.0]
+        sell_prices = [Decimal('10150.0'), Decimal('10120.0'), Decimal('10180.0'), Decimal('10110.0'), Decimal('10130.0')]
         for i, price in enumerate(sell_prices):
             sell_order = Order(
+                user_id=f"sell_user_{i}",
                 order_id=f"sell_{i}",
                 symbol=order_book.symbol,
                 side=OrderSide.SELL,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal('1.0'),
                 price=price
             )
             order_book.add_order(sell_order)
@@ -273,5 +284,5 @@ class TestOrderBook:
         assert order_book.remove_order("any_id") is None
         
         depth = order_book.get_depth()
-        assert len(depth["bids"]) == 0
-        assert len(depth["asks"]) == 0
+        assert len(depth["bids"]) == Decimal("0")
+        assert len(depth["asks"]) == Decimal("0")

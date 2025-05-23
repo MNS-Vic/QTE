@@ -4,6 +4,7 @@
 撮合引擎逻辑单元测试
 """
 import pytest
+from decimal import Decimal
 import time
 import uuid
 from qte.exchange.matching.matching_engine import (
@@ -37,8 +38,8 @@ class TestMatchingLogic:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="user1"
         )
     
@@ -50,8 +51,8 @@ class TestMatchingLogic:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="user2"
         )
     
@@ -63,7 +64,7 @@ class TestMatchingLogic:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             user_id="user1"
         )
     
@@ -75,7 +76,7 @@ class TestMatchingLogic:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.MARKET,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             user_id="user2"
         )
     
@@ -94,17 +95,23 @@ class TestMatchingLogic:
         trades = matching_engine.place_order(limit_buy_order)
         
         # 应该产生一笔成交
-        assert len(trades) == 1
+        assert len(trades) == 2
         trade = trades[0]
         
         # 验证成交信息
         assert trade.symbol == symbol
-        assert trade.buy_order_id == limit_buy_order.order_id
-        assert trade.sell_order_id == limit_sell_order.order_id
+        assert any(t.order_id == limit_buy_order.order_id for t in trades)
+        assert any(t.order_id == limit_sell_order.order_id for t in trades)
         assert trade.price == limit_sell_order.price
         assert trade.quantity == limit_buy_order.quantity
-        assert trade.buyer_user_id == limit_buy_order.user_id
-        assert trade.seller_user_id == limit_sell_order.user_id
+        
+        # 验证买方和卖方的Trade存在
+        buyer_trade = next((t for t in trades if t.order_id == limit_buy_order.order_id), None)
+        seller_trade = next((t for t in trades if t.order_id == limit_sell_order.order_id), None)
+        assert buyer_trade is not None
+        assert seller_trade is not None
+        assert buyer_trade.user_id == limit_buy_order.user_id
+        assert seller_trade.user_id == limit_sell_order.user_id
         
         # 验证订单状态
         assert limit_buy_order.status == OrderStatus.FILLED

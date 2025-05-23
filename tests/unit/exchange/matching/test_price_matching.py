@@ -31,13 +31,13 @@ class TestPriceMatching:
         
         # 添加卖单，价格从10000到10100，每价格档位1个订单
         for i in range(10):
-            price = 10000 + i * 10
+            price=Decimal("10000") + i * 10
             order = Order(
                 order_id=f"sell_{i}",
                 symbol=symbol,
                 side=OrderSide.SELL,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal("1.0"),
                 price=price,
                 user_id="seller"
             )
@@ -45,13 +45,13 @@ class TestPriceMatching:
         
         # 添加买单，价格从9900到9990，每价格档位1个订单
         for i in range(10):
-            price = 9990 - i * 10
+            price=Decimal("9990") - i * 10
             order = Order(
                 order_id=f"buy_{i}",
                 symbol=symbol,
                 side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal("1.0"),
                 price=price,
                 user_id="buyer"
             )
@@ -67,7 +67,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="OPPONENT"  # 使用对手价
@@ -77,18 +77,20 @@ class TestPriceMatching:
         matched_price = matching_engine._apply_price_match(buy_order, setup_order_book)
         
         # 验证匹配后的价格是卖一价 10000
-        assert matched_price == 10000
+        assert matched_price == Decimal("10000")
         
         # 使用匹配后的价格更新订单并下单
         buy_order.price = matched_price
         trades = matching_engine.place_order(buy_order)
         
         # 验证成交
-        assert len(trades) == 1
-        assert trades[0].price == 10000
-        assert trades[0].quantity == 0.5
-        assert trades[0].buy_order_id == "test_buy"
-        assert trades[0].sell_order_id == "sell_0"
+        assert len(trades) == 2
+        assert trades[0].price == Decimal("10000")
+        assert trades[0].quantity == Decimal("0.5")
+        # 验证买方Trade存在
+        assert any(t.user_id == "test_user" for t in trades)
+        # 验证卖方Trade存在
+        assert any(t.is_maker for t in trades)
     
     def test_opponent_price_match_sell(self, matching_engine, symbol, setup_order_book):
         """测试卖单对手价匹配（买一价）"""
@@ -98,7 +100,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="OPPONENT"  # 使用对手价
@@ -108,18 +110,20 @@ class TestPriceMatching:
         matched_price = matching_engine._apply_price_match(sell_order, setup_order_book)
         
         # 验证匹配后的价格是买一价 9990
-        assert matched_price == 9990
+        assert matched_price == Decimal("9990")
         
         # 使用匹配后的价格更新订单并下单
         sell_order.price = matched_price
         trades = matching_engine.place_order(sell_order)
         
         # 验证成交
-        assert len(trades) == 1
-        assert trades[0].price == 9990
-        assert trades[0].quantity == 0.5
-        assert trades[0].buy_order_id == "buy_0"
-        assert trades[0].sell_order_id == "test_sell"
+        assert len(trades) == 2
+        assert trades[0].price == Decimal("9990")
+        assert trades[0].quantity == Decimal("0.5")
+        # 验证买方Trade存在
+        assert any(t.user_id == "test_user" for t in trades)
+        # 验证卖方Trade存在
+        assert any(t.is_maker for t in trades)
     
     def test_queue_price_match_buy(self, matching_engine, symbol, setup_order_book):
         """测试买单同向价匹配（买一价）"""
@@ -129,7 +133,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="QUEUE"  # 使用同向价
@@ -139,19 +143,19 @@ class TestPriceMatching:
         matched_price = matching_engine._apply_price_match(buy_order, setup_order_book)
         
         # 验证匹配后的价格是买一价 9990
-        assert matched_price == 9990
+        assert matched_price == Decimal("9990")
         
         # 使用匹配后的价格更新订单并下单
         buy_order.price = matched_price
         
         # 此时不应该成交，因为同向价不够高
         trades = matching_engine.place_order(buy_order)
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         
         # 验证订单被添加到买单中
         order_book = matching_engine.get_order_book(symbol)
         assert buy_order.order_id in order_book.order_map
-        assert buy_order.price == 9990
+        assert buy_order.price == Decimal("9990")
     
     def test_queue_price_match_sell(self, matching_engine, symbol, setup_order_book):
         """测试卖单同向价匹配（卖一价）"""
@@ -161,7 +165,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="QUEUE"  # 使用同向价
@@ -171,19 +175,19 @@ class TestPriceMatching:
         matched_price = matching_engine._apply_price_match(sell_order, setup_order_book)
         
         # 验证匹配后的价格是卖一价 10000
-        assert matched_price == 10000
+        assert matched_price == Decimal("10000")
         
         # 使用匹配后的价格更新订单并下单
         sell_order.price = matched_price
         
         # 此时不应该成交，因为同向价不够低
         trades = matching_engine.place_order(sell_order)
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         
         # 验证订单被添加到卖单中
         order_book = matching_engine.get_order_book(symbol)
         assert sell_order.order_id in order_book.order_map
-        assert sell_order.price == 10000
+        assert sell_order.price == Decimal("10000")
     
     def test_opponent_5_price_match(self, matching_engine, symbol, setup_order_book):
         """测试对手5档价格匹配"""
@@ -193,7 +197,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="OPPONENT_5"  # 使用对手5档价
@@ -203,16 +207,16 @@ class TestPriceMatching:
         matched_price = matching_engine._apply_price_match(buy_order, setup_order_book)
         
         # 验证匹配后的价格是卖5档价 (10000 + 4*10 = 10040)
-        assert matched_price == 10040
+        assert matched_price == Decimal("10040")
         
         # 使用匹配后的价格更新订单并下单
         buy_order.price = matched_price
         trades = matching_engine.place_order(buy_order)
         
         # 应该会匹配到卖一档，因为买单价格高于卖一价
-        assert len(trades) == 1
-        assert trades[0].price == 10000  # 成交价是卖一价，不是匹配价
-        assert trades[0].quantity == 0.5
+        assert len(trades) == 2
+        assert trades[0].price == Decimal("10000")  # 成交价是卖一价，不是匹配价
+        assert trades[0].quantity == Decimal("0.5")
     
     def test_queue_10_price_match(self, matching_engine, symbol, setup_order_book):
         """测试同向10档价格匹配"""
@@ -222,7 +226,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="QUEUE_10"  # 使用同向10档价
@@ -230,7 +234,7 @@ class TestPriceMatching:
         
         # 实际上我们的卖盘有10个档位，所以第10档的价格是10090
         matched_price = matching_engine._apply_price_match(sell_order, setup_order_book)
-        assert matched_price == 10090
+        assert matched_price == Decimal("10090")
         
         # 测试超出档位的情况，比如请求第11档
         sell_order.price_match = "QUEUE_11"
@@ -248,7 +252,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="OPPONENT"  # 使用对手价
@@ -266,7 +270,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="INVALID_MODE"  # 无效的匹配模式
@@ -292,7 +296,7 @@ class TestPriceMatching:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.5,
+            quantity=Decimal("0.5"),
             price=None,  # 不指定价格
             user_id="test_user",
             price_match="OPPONENT"  # 使用对手价

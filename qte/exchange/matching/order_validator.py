@@ -60,14 +60,14 @@ class OrderValidator:
             order.status = OrderStatus.REJECTED
             
         # 验证止损单
-        if order.order_type == OrderType.STOP and order.stop_price is None:
+        if order.order_type == OrderType.STOP_LOSS and order.stop_price is None:
             error_msg = "止损单必须指定触发价格"
             logger.warning(error_msg)
             errors.append(error_msg)
             order.status = OrderStatus.REJECTED
             
         # 验证止损限价单
-        if order.order_type == OrderType.STOP_LIMIT:
+        if order.order_type == OrderType.STOP_LOSS_LIMIT:
             if order.stop_price is None:
                 error_msg = "止损限价单必须指定触发价格"
                 logger.warning(error_msg)

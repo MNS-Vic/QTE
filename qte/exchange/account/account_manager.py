@@ -472,6 +472,10 @@ class AccountManager:
         self.account_listeners = []  # 账户更新监听器
         self.active_symbols: Set[str] = set()  # 活跃交易对
         
+        # 添加订单和交易历史存储
+        self.user_order_history: Dict[str, List] = {}  # user_id -> List[Order] 
+        self.user_trade_history: Dict[str, List] = {}  # user_id -> List[Trade]
+        
         logger.info("账户管理器已初始化")
     
     def create_account(self, user_id: str, name: Optional[str] = None) -> UserAccount:
@@ -769,3 +773,71 @@ class AccountManager:
                 listener(user_id, snapshot)
             except Exception as e:
                 logger.error(f"通知账户监听器失败: {e}")
+
+    def add_order_to_history(self, user_id: str, order) -> None:
+        """
+        将订单添加到用户历史记录
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID
+        order : Order
+            订单对象
+        """
+        if user_id not in self.user_order_history:
+            self.user_order_history[user_id] = []
+        self.user_order_history[user_id].append(order)
+        
+    def add_trade_to_history(self, user_id: str, trade) -> None:
+        """
+        将交易添加到用户历史记录
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID  
+        trade : Trade
+            交易对象
+        """
+        if user_id not in self.user_trade_history:
+            self.user_trade_history[user_id] = []
+        self.user_trade_history[user_id].append(trade)
+        
+    def get_all_orders_for_symbol(self, user_id: str, symbol: str) -> List:
+        """
+        获取用户在指定交易对的所有订单历史
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID
+        symbol : str
+            交易对
+            
+        Returns
+        -------
+        List[Order]
+            订单列表
+        """
+        user_orders = self.user_order_history.get(user_id, [])
+        return [order for order in user_orders if order.symbol == symbol]
+        
+    def get_all_trades_for_symbol(self, user_id: str, symbol: str) -> List:
+        """
+        获取用户在指定交易对的所有交易历史
+        
+        Parameters
+        ----------
+        user_id : str
+            用户ID
+        symbol : str
+            交易对
+            
+        Returns
+        -------
+        List[Trade]
+            交易列表
+        """
+        user_trades = self.user_trade_history.get(user_id, [])
+        return [trade for trade in user_trades if trade.symbol == symbol]

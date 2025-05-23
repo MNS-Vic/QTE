@@ -5,6 +5,7 @@
 测试匹配引擎在各种边界条件下的行为
 """
 import pytest
+from decimal import Decimal
 import uuid
 import time
 from qte.exchange.matching.matching_engine import (
@@ -41,8 +42,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=0.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("0.0"),
             user_id="user1"
         )
         
@@ -52,8 +53,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=0.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("0.0"),
             user_id="user2"
         )
         
@@ -71,8 +72,8 @@ class TestMatchingEngineBoundaryConditions:
         assert 0.0 not in order_book.sell_prices
         
         # 不应产生成交
-        assert len(trades_buy) == 0
-        assert len(trades_sell) == 0
+        assert len(trades_buy) == Decimal("0")
+        assert len(trades_sell) == Decimal("0")
     
     def test_negative_price_order(self, matching_engine, symbol):
         """
@@ -85,8 +86,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=-100.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("-100.0"),
             user_id="user1"
         )
         
@@ -96,8 +97,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=-100.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("-100.0"),
             user_id="user2"
         )
         
@@ -115,8 +116,8 @@ class TestMatchingEngineBoundaryConditions:
         assert -100.0 not in order_book.sell_prices
         
         # 不应产生成交
-        assert len(trades_buy) == 0
-        assert len(trades_sell) == 0
+        assert len(trades_buy) == Decimal("0")
+        assert len(trades_sell) == Decimal("0")
     
     def test_empty_orderbook_market_order(self, matching_engine, symbol):
         """
@@ -125,8 +126,8 @@ class TestMatchingEngineBoundaryConditions:
         """
         # 确保订单簿为空
         order_book = matching_engine.get_order_book(symbol)
-        assert len(order_book.buy_prices) == 0
-        assert len(order_book.sell_prices) == 0
+        assert len(order_book.buy_prices) == Decimal("0")
+        assert len(order_book.sell_prices) == Decimal("0")
         
         # 创建市价买单
         market_buy = Order(
@@ -134,7 +135,7 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             user_id="user1"
         )
         
@@ -142,7 +143,7 @@ class TestMatchingEngineBoundaryConditions:
         trades = matching_engine.place_order(market_buy)
         
         # 预期无成交
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         
         # 市价单不应加入订单簿
         assert market_buy.order_id not in order_book.order_map
@@ -153,7 +154,7 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.MARKET,
-            quantity=1.0,
+            quantity=Decimal("1.0"),
             user_id="user2"
         )
         
@@ -161,7 +162,7 @@ class TestMatchingEngineBoundaryConditions:
         trades = matching_engine.place_order(market_sell)
         
         # 预期无成交
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         
         # 市价单不应加入订单簿
         assert market_sell.order_id not in order_book.order_map
@@ -177,30 +178,32 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="seller"
         )
         matching_engine.place_order(limit_sell)
-        
+    
         # 创建数量较大的市价买单
         market_buy = Order(
             order_id=str(uuid.uuid4()),
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
-            quantity=2.0,
+            quantity=Decimal("2.0"),
             user_id="buyer"
         )
-        
+    
         # 尝试下单
         trades = matching_engine.place_order(market_buy)
-        
-        # 预期部分成交
-        assert len(trades) == 1
-        assert trades[0].quantity == 1.0
-        assert market_buy.filled_quantity == 1.0
-        assert market_buy.remaining_quantity == 1.0
+    
+        # 预期部分成交 - 现在每次撮合产生2个Trade对象（买方和卖方各一个）
+        assert len(trades) == 2
+        # 找到买方的trade
+        buyer_trade = next(t for t in trades if t.user_id == "buyer")
+        assert buyer_trade.quantity == Decimal("1.0")
+        assert market_buy.executed_quantity == Decimal("1.0")
+        assert market_buy.remaining_quantity == Decimal("1.0")
         assert market_buy.status == OrderStatus.PARTIALLY_FILLED
         
         # 市价单不应加入订单簿，即使部分成交
@@ -219,8 +222,8 @@ class TestMatchingEngineBoundaryConditions:
                 symbol=symbol,
                 side=OrderSide.SELL,
                 order_type=OrderType.LIMIT,
-                quantity=100.0,
-                price=10000.0 + i*10,  # 10000, 10010, 10020...
+                quantity=Decimal("100.0"),
+                price=Decimal("10000.0") + i*10,  # 10000, 10010, 10020...
                 user_id=f"seller_{i}"
             )
             matching_engine.place_order(sell_order)
@@ -231,21 +234,24 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1e9,  # 10亿
-            price=10050.0,  # 高于所有卖单
+            quantity=Decimal("1000000000"),  # 10亿，使用Decimal
+            price=Decimal("10050.0"),  # 高于所有卖单
             user_id="big_buyer"
         )
         
         # 尝试下单
         trades = matching_engine.place_order(large_buy)
         
-        # 预期成交5笔，总量500
-        assert len(trades) == 5
-        assert sum(trade.quantity for trade in trades) == 500.0
+        # 预期成交5笔，但每笔交易产生2个Trade对象，所以总共10个
+        assert len(trades) == 10
+        # 计算买方的总成交量
+        buyer_trades = [t for t in trades if t.user_id == "big_buyer"]
+        assert len(buyer_trades) == 5
+        assert sum(trade.quantity for trade in buyer_trades) == Decimal("500.0")
         
         # 验证大单状态
-        assert large_buy.filled_quantity == 500.0
-        assert large_buy.remaining_quantity == 1e9 - 500.0
+        assert large_buy.executed_quantity == Decimal("500.0")
+        assert large_buy.remaining_quantity == Decimal("1000000000") - Decimal("500.0")
         assert large_buy.status == OrderStatus.PARTIALLY_FILLED
     
     def test_extremely_small_order(self, matching_engine, symbol):
@@ -259,8 +265,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="seller"
         )
         matching_engine.place_order(limit_sell)
@@ -271,22 +277,23 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1e-10,  # 非常小的数量
-            price=10000.0,
+            quantity=Decimal("0.0000000001"),  # 非常小的数量，使用Decimal
+            price=Decimal("10000.0"),
             user_id="buyer"
         )
         
         # 尝试下单
         trades = matching_engine.place_order(small_buy)
         
-        # 预期成交
-        assert len(trades) == 1
-        assert trades[0].quantity == 1e-10
+        # 预期成交 - 现在每次撮合产生2个Trade对象
+        assert len(trades) == 2
+        buyer_trade = next(t for t in trades if t.user_id == "buyer")
+        assert buyer_trade.quantity == Decimal("0.0000000001")
         
         # 验证订单状态
         assert small_buy.status == OrderStatus.FILLED
         assert limit_sell.status == OrderStatus.PARTIALLY_FILLED
-        assert limit_sell.remaining_quantity == 1.0 - 1e-10
+        assert limit_sell.remaining_quantity == Decimal("1.0") - Decimal("0.0000000001")
     
     def test_price_time_priority(self, matching_engine, symbol):
         """
@@ -303,7 +310,7 @@ class TestMatchingEngineBoundaryConditions:
                 symbol=symbol,
                 side=OrderSide.SELL,
                 order_type=OrderType.LIMIT,
-                quantity=1.0,
+                quantity=Decimal("1.0"),
                 price=price,
                 user_id=f"seller_{price}"
             )
@@ -317,20 +324,22 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=10.0,
-            price=10050.0,  # 等于或高于所有卖单
+            quantity=Decimal("10.0"),
+            price=Decimal("10050.0"),  # 等于或高于所有卖单
             user_id="buyer"
         )
         
         # 尝试下单
         trades = matching_engine.place_order(buy_order)
         
-        # 预期成交5笔
-        assert len(trades) == 5
+        # 预期成交5笔，但每笔交易产生2个Trade对象，所以总共10个
+        assert len(trades) == 10
         
-        # 验证成交价格顺序（应按照价格从低到高）
+        # 获取买方的trades并验证成交价格顺序（应按照价格从低到高）
+        buyer_trades = [t for t in trades if t.user_id == "buyer"]
+        assert len(buyer_trades) == 5
         expected_prices = sorted(prices)
-        for i, trade in enumerate(trades):
+        for i, trade in enumerate(buyer_trades):
             assert trade.price == expected_prices[i]
     
     def test_cancel_nonexistent_order(self, matching_engine, symbol):
@@ -356,8 +365,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="user1"
         )
         
@@ -367,8 +376,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.SELL,
             order_type=OrderType.LIMIT,
-            quantity=1.0,
-            price=10000.0,
+            quantity=Decimal("1.0"),
+            price=Decimal("10000.0"),
             user_id="user2"
         )
         
@@ -394,8 +403,8 @@ class TestMatchingEngineBoundaryConditions:
             symbol=symbol,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
-            quantity=0.0,
-            price=10000.0,
+            quantity=Decimal("0.0"),
+            price=Decimal("10000.0"),
             user_id="user1"
         )
         
@@ -403,7 +412,7 @@ class TestMatchingEngineBoundaryConditions:
         trades = matching_engine.place_order(zero_qty_order)
         
         # 预期无成交
-        assert len(trades) == 0
+        assert len(trades) == Decimal("0")
         
         # 数量为0的订单不应加入订单簿
         order_book = matching_engine.get_order_book(symbol)
