@@ -89,4 +89,7 @@ reflection.md
 
 # 系统文件
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# 第三方源码目录
+vnpy-4.0.0/ 
