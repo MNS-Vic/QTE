@@ -478,7 +478,7 @@ class ExchangeRESTServer:
                 if requested_symbols_param is not None or requested_symbol_param is not None:
                     # UNKNOWN_SYMBOL should be -1121 as per Binance for "Invalid symbol"
                     return self._error_response(f"Invalid symbol: {sym_name}", UNKNOWN_SYMBOL, 400)
-        else:
+                else:
                     # For "get all available symbols", if a symbol from matching_engine.order_books.keys()
                     # somehow has no price (e.g., engine initialized it but no trades/quotes yet), we should skip it.
                     logger.warning(f"Symbol '{sym_name}' from all available symbols has no market price, skipping.")
@@ -538,21 +538,21 @@ class ExchangeRESTServer:
             if sym_name not in self.matching_engine.order_books:
                 if requested_symbols_param is not None or requested_symbol_param is not None:
                     return self._error_response(f"Invalid symbol: {sym_name}", UNKNOWN_SYMBOL, 400)
-        else:
+                else:
                     # If getting all symbols, skip unknown ones that might be in keys but not fully initialized
                     logger.warning(f"Symbol '{sym_name}' from all available symbols not found in order books, skipping for 24hr ticker.")
                     continue
             
             last_price = self.matching_engine.get_market_price(sym_name) or Decimal("0")
-            # Placeholder values for other fields, to be fully implemented later.
+                        # Placeholder values for other fields, to be fully implemented later.
             # The structure must match Binance's response.
-                stats = {
+            stats = {
                 "symbol": sym_name,
                 "priceChange": "0", # Placeholder
                 "priceChangePercent": "0.000", # Placeholder, e.g., "-0.792"
                 "weightedAvgPrice": str(last_price), # Simplified, should be volume-weighted
                 "prevClosePrice": str(last_price), # Simplified, should be price 24h ago
-                    "lastPrice": str(last_price),
+                "lastPrice": str(last_price),
                 "lastQty": "0", # Placeholder, quantity of last trade
                 "bidPrice": str(self.matching_engine.get_best_bid(sym_name) or "0"),
                 "bidQty": "0", # Placeholder, quantity of best bid
