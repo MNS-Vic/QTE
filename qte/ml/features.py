@@ -444,3 +444,6 @@ class FeatureGenerator:
             特征名称列表
         """
         return self.feature_columns
+# 为了向后兼容，提供别名
+FeatureEngineering = FeatureGenerator
+TechnicalFeatures = FeatureGenerator

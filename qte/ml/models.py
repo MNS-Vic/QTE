@@ -23,7 +23,7 @@ class ModelManager:
     负责模型的训练、评估、保存和加载
     """
     
-    def __init__(self) -> None:
+    def __init__(self, model_dir: Optional[str] = None) -> None:
         """
         初始化模型管理器
         """
@@ -428,3 +428,5 @@ class ModelManager:
         }
         
         return info
+# 为了向后兼容，提供别名
+ModelTrainer = ModelManager

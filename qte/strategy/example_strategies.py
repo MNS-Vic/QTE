@@ -247,3 +247,5 @@ if __name__ == '__main__':
                  # 忽略其他可能的事件类型，因为我们只注册了信号处理器
 
     app_logger.info("移动平均线交叉策略测试结束。") 
+# 为了向后兼容，提供SimpleMovingAverageStrategy别名
+SimpleMovingAverageStrategy = MovingAverageCrossStrategy
