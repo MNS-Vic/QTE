@@ -1,0 +1,196 @@
+
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>QTE框架可视化报告演示</title>
+        <style>
+            body {
+                font-family: 'Microsoft YaHei', Arial, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background-color: white;
+                padding: 30px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h1 {
+                color: #2c3e50;
+                text-align: center;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+            }
+            h2 {
+                color: #34495e;
+                border-left: 4px solid #3498db;
+                padding-left: 15px;
+            }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin: 20px 0;
+            }
+            .metric-card {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 20px;
+                border-radius: 10px;
+                text-align: center;
+            }
+            .metric-value {
+                font-size: 2em;
+                font-weight: bold;
+                margin: 10px 0;
+            }
+            .metric-label {
+                font-size: 0.9em;
+                opacity: 0.9;
+            }
+            .chart-container {
+                text-align: center;
+                margin: 30px 0;
+            }
+            .chart-container img {
+                max-width: 100%;
+                height: auto;
+                border-radius: 10px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            }
+            .summary-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }
+            .summary-table th, .summary-table td {
+                border: 1px solid #ddd;
+                padding: 12px;
+                text-align: left;
+            }
+            .summary-table th {
+                background-color: #3498db;
+                color: white;
+            }
+            .summary-table tr:nth-child(even) {
+                background-color: #f2f2f2;
+            }
+            .footer {
+                text-align: center;
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #ddd;
+                color: #7f8c8d;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🚀 QTE框架可视化报告演示</h1>
+            
+            <h2>📊 策略概览</h2>
+            <p><strong>策略名称:</strong> 双均线策略演示</p>
+            <p><strong>回测期间:</strong> 2023-01-01 至 2023-12-31</p>
+            <p><strong>初始资金:</strong> ¥100,000</p>
+            
+            <h2>🎯 核心指标</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">总收益率</div>
+                    <div class="metric-value">103.54%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">年化收益率</div>
+                    <div class="metric-value">63.34%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">最大回撤</div>
+                    <div class="metric-value">-10.26%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">夏普比率</div>
+                    <div class="metric-value">1.6158</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">年化波动率</div>
+                    <div class="metric-value">39.20%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">胜率</div>
+                    <div class="metric-value">51.78%</div>
+                </div>
+            </div>
+            
+            <h2>📈 策略分析图表</h2>
+            <div class="chart-container">
+                <h3>策略完整分析</h3>
+                <img src="strategy_overview.png" alt="策略概览图">
+            </div>
+            
+            <div class="chart-container">
+                <h3>资金曲线详细图</h3>
+                <img src="equity_curve.png" alt="资金曲线图">
+            </div>
+            
+            <h2>📋 详细统计</h2>
+            <table class="summary-table">
+                <tr>
+                    <th>指标</th>
+                    <th>数值</th>
+                    <th>说明</th>
+                </tr>
+                <tr>
+                    <td>总收益率</td>
+                    <td>103.54%</td>
+                    <td>整个回测期间的总收益率</td>
+                </tr>
+                <tr>
+                    <td>年化收益率</td>
+                    <td>63.34%</td>
+                    <td>年化后的收益率</td>
+                </tr>
+                <tr>
+                    <td>年化波动率</td>
+                    <td>39.20%</td>
+                    <td>收益率的年化标准差</td>
+                </tr>
+                <tr>
+                    <td>夏普比率</td>
+                    <td>1.6158</td>
+                    <td>风险调整后的收益率</td>
+                </tr>
+                <tr>
+                    <td>最大回撤</td>
+                    <td>-10.26%</td>
+                    <td>从峰值到谷值的最大跌幅</td>
+                </tr>
+                <tr>
+                    <td>交易次数</td>
+                    <td>12</td>
+                    <td>总交易信号数量</td>
+                </tr>
+                <tr>
+                    <td>胜率</td>
+                    <td>51.78%</td>
+                    <td>盈利交易占比</td>
+                </tr>
+                <tr>
+                    <td>最终资金</td>
+                    <td>¥203,536</td>
+                    <td>回测结束时的资金</td>
+                </tr>
+            </table>
+            
+            <div class="footer">
+                <p>📊 由QTE量化交易引擎生成 | 🕒 生成时间: 2025-05-28 23:30:26</p>
+                <p>💡 这是一个演示报告，展示了QTE框架的可视化功能</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    
