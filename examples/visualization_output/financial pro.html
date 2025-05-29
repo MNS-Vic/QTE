@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QTE量化框架 - 金融专业报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0e1a;
+            color: #e2e8f0;
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #7c3aed 100%);
+            padding: 48px 40px;
+            border-radius: 20px;
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+            opacity: 0.3;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .header .subtitle {
+            font-size: 1.25rem;
+            color: #e0e7ff;
+            font-weight: 300;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 32px;
+            margin: 40px 0;
+        }
+        
+        .main-metrics {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid #334155;
+        }
+        
+        .side-metrics {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .metric-large {
+            text-align: center;
+            padding: 32px;
+            border-bottom: 1px solid #475569;
+        }
+        
+        .metric-large:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-large .value {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .metric-large .label {
+            font-size: 1rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+        
+        .metric-small {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            text-align: center;
+        }
+        
+        .metric-small .value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #06b6d4;
+            margin-bottom: 8px;
+        }
+        
+        .metric-small .label {
+            font-size: 0.875rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .section {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-radius: 16px;
+            padding: 40px;
+            margin: 32px 0;
+            border: 1px solid #334155;
+        }
+        
+        .section-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 32px;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 16px;
+        }
+        
+        .chart-container {
+            background: #0f172a;
+            padding: 24px;
+            border-radius: 12px;
+            border: 1px solid #1e293b;
+            text-align: center;
+        }
+        
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+        
+        .financial-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 24px 0;
+            background: #0f172a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .financial-table th {
+            background: linear-gradient(135deg, #1e3a8a, #3730a3);
+            color: white;
+            font-weight: 700;
+            padding: 20px 16px;
+            text-align: left;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .financial-table td {
+            padding: 16px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 0.95rem;
+            color: #e2e8f0;
+        }
+        
+        .financial-table tbody tr:hover {
+            background: #1e293b;
+        }
+        
+        .trend-up { 
+            color: #10b981; 
+            font-weight: 600;
+        }
+        
+        .trend-down { 
+            color: #ef4444; 
+            font-weight: 600;
+        }
+        
+        .neutral { 
+            color: #06b6d4; 
+            font-weight: 600;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 60px;
+            padding: 32px;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-radius: 16px;
+            border: 1px solid #334155;
+        }
+        
+        .footer p {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            margin: 8px 0;
+        }
+        
+        @media (max-width: 1024px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 2.5rem; }
+            .container { padding: 20px 16px; }
+            .section { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Professional Trading Analytics</h1>
+            <p class="subtitle">QTE量化交易引擎 · 专业级金融分析报告</p>
+        </div>
+        
+        <div class="dashboard">
+            <div class="main-metrics">
+                <div class="metric-large">
+                    <div class="value trend-up">+24.56%</div>
+                    <div class="label">Total Return</div>
+                </div>
+                <div class="metric-large">
+                    <div class="value trend-up">+18.32%</div>
+                    <div class="label">Annualized Return</div>
+                </div>
+                <div class="metric-large">
+                    <div class="value trend-down">-8.45%</div>
+                    <div class="label">Maximum Drawdown</div>
+                </div>
+            </div>
+            
+            <div class="side-metrics">
+                <div class="metric-small">
+                    <div class="value neutral">1.85</div>
+                    <div class="label">Sharpe Ratio</div>
+                </div>
+                <div class="metric-small">
+                    <div class="value">12.8%</div>
+                    <div class="label">Volatility</div>
+                </div>
+                <div class="metric-small">
+                    <div class="value trend-up">68.5%</div>
+                    <div class="label">Win Rate</div>
+                </div>
+                <div class="metric-small">
+                    <div class="value">156</div>
+                    <div class="label">Total Trades</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Strategy Performance Overview</h2>
+            <div class="chart-container">
+                <img src="strategy_overview.png" alt="Strategy Performance">
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Equity Curve Analysis</h2>
+            <div class="chart-container">
+                <img src="equity_curve.png" alt="Equity Curve">
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Detailed Performance Metrics</h2>
+            <table class="financial-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                        <th>Benchmark</th>
+                        <th>Rating</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Total Return</td>
+                        <td class="trend-up">+24.56%</td>
+                        <td>15%</td>
+                        <td>🟢 Excellent</td>
+                        <td>Overall strategy profitability</td>
+                    </tr>
+                    <tr>
+                        <td>Annualized Return</td>
+                        <td class="trend-up">+18.32%</td>
+                        <td>12%</td>
+                        <td>🟢 Good</td>
+                        <td>Year-over-year performance</td>
+                    </tr>
+                    <tr>
+                        <td>Maximum Drawdown</td>
+                        <td class="trend-down">-8.45%</td>
+                        <td>-10%</td>
+                        <td>🟢 Good</td>
+                        <td>Risk management effectiveness</td>
+                    </tr>
+                    <tr>
+                        <td>Sharpe Ratio</td>
+                        <td class="neutral">1.85</td>
+                        <td>1.5</td>
+                        <td>🟢 Excellent</td>
+                        <td>Risk-adjusted returns</td>
+                    </tr>
+                    <tr>
+                        <td>Volatility</td>
+                        <td>12.8%</td>
+                        <td>15%</td>
+                        <td>🟡 Moderate</td>
+                        <td>Return consistency</td>
+                    </tr>
+                    <tr>
+                        <td>Win Rate</td>
+                        <td class="trend-up">68.5%</td>
+                        <td>55%</td>
+                        <td>🟢 Excellent</td>
+                        <td>Trade success ratio</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <p><strong>QTE Quantitative Trading Engine</strong></p>
+            <p>Professional Financial Analytics Report</p>
+            <p>Generated: 2024-12-18 15:30:00 UTC</p>
+        </div>
+    </div>
+</body>
+</html>

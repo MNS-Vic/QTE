@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QTE框架 - 商务专业风格</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: #ffffff;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 60px 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.8rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            background: linear-gradient(45deg, #ffffff, #a8d8ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header .subtitle {
+            font-size: 1.1rem;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 400;
+        }
+        
+        .section {
+            margin-bottom: 60px;
+        }
+        
+        .section-title {
+            font-size: 1.6rem;
+            font-weight: 600;
+            margin-bottom: 32px;
+            color: #ffffff;
+            position: relative;
+            padding-bottom: 12px;
+        }
+        
+        .section-title::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, #4facfe, #00f2fe);
+            border-radius: 2px;
+        }
+        
+        .strategy-info {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 32px;
+        }
+        
+        .info-item {
+            text-align: center;
+        }
+        
+        .info-label {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .info-value {
+            font-size: 1.4rem;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+        
+        .metric-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            transition: all 0.3s ease;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(79, 172, 254, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .metric-card:hover::before {
+            opacity: 1;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-8px);
+            border-color: rgba(79, 172, 254, 0.5);
+            box-shadow: 0 16px 40px rgba(79, 172, 254, 0.2);
+        }
+        
+        .metric-label {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 16px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .metric-value {
+            font-size: 2.6rem;
+            font-weight: 700;
+            color: #ffffff;
+            line-height: 1;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .chart-section {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            margin-bottom: 32px;
+        }
+        
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 28px;
+            text-align: center;
+        }
+        
+        .chart-container img {
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(20px);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        
+        .summary-table th {
+            background: rgba(79, 172, 254, 0.2);
+            padding: 20px;
+            text-align: left;
+            font-weight: 600;
+            color: #ffffff;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+        
+        .summary-table td {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+        
+        .summary-table tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .table-value {
+            font-weight: 600;
+            color: #4facfe;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 60px;
+            padding-top: 40px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+        }
+        
+        .badge {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: #ffffff;
+            padding: 6px 16px;
+            border-radius: 16px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 12px;
+            box-shadow: 0 4px 16px rgba(79, 172, 254, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>专业量化分析报告</h1>
+            <div class="subtitle">Professional Quantitative Trading Analytics</div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">策略概览</h2>
+            <div class="strategy-info">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">策略名称</div>
+                        <div class="info-value">双均线策略演示 <span class="badge">专业版</span></div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">回测期间</div>
+                        <div class="info-value">2023-01-01 至 2023-12-31</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">初始资金</div>
+                        <div class="info-value">¥100,000</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">最终资金</div>
+                        <div class="info-value">¥203,536</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">核心指标</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">总收益率</div>
+                    <div class="metric-value">103.54%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">年化收益率</div>
+                    <div class="metric-value">63.34%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">最大回撤</div>
+                    <div class="metric-value">-10.26%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">夏普比率</div>
+                    <div class="metric-value">1.6158</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">年化波动率</div>
+                    <div class="metric-value">39.20%</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">胜率</div>
+                    <div class="metric-value">51.78%</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">图表分析</h2>
+            <div class="chart-section">
+                <div class="chart-title">策略完整分析</div>
+                <div class="chart-container">
+                    <img src="strategy_overview.png" alt="策略概览图">
+                </div>
+            </div>
+            
+            <div class="chart-section">
+                <div class="chart-title">资金曲线详细图</div>
+                <div class="chart-container">
+                    <img src="equity_curve.png" alt="资金曲线图">
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">详细统计</h2>
+            <table class="summary-table">
+                <thead>
+                    <tr>
+                        <th>指标</th>
+                        <th>数值</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>总收益率</td>
+                        <td class="table-value">103.54%</td>
+                        <td>整个回测期间的总收益率</td>
+                    </tr>
+                    <tr>
+                        <td>年化收益率</td>
+                        <td class="table-value">63.34%</td>
+                        <td>年化后的收益率</td>
+                    </tr>
+                    <tr>
+                        <td>年化波动率</td>
+                        <td class="table-value">39.20%</td>
+                        <td>收益率的年化标准差</td>
+                    </tr>
+                    <tr>
+                        <td>夏普比率</td>
+                        <td class="table-value">1.6158</td>
+                        <td>风险调整后的收益率</td>
+                    </tr>
+                    <tr>
+                        <td>最大回撤</td>
+                        <td class="table-value">-10.26%</td>
+                        <td>从峰值到谷值的最大跌幅</td>
+                    </tr>
+                    <tr>
+                        <td>交易次数</td>
+                        <td class="table-value">12</td>
+                        <td>总交易信号数量</td>
+                    </tr>
+                    <tr>
+                        <td>胜率</td>
+                        <td class="table-value">51.78%</td>
+                        <td>盈利交易占比</td>
+                    </tr>
+                    <tr>
+                        <td>最终资金</td>
+                        <td class="table-value">¥203,536</td>
+                        <td>回测结束时的资金</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <p>商务专业风格 | QTE量化交易引擎</p>
+            <p>生成时间: 2025-01-28 14:30:26 | Enterprise Analytics Solution</p>
+        </div>
+    </div>
+</body>
+</html>

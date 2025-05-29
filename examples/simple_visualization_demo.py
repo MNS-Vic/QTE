@@ -126,117 +126,168 @@ def calculate_metrics(data):
 
 
 def create_visualizations(data, metrics):
-    """创建可视化图表"""
-    print("🎨 生成可视化图表...")
+    """创建金融专业版可视化图表"""
+    print("🎨 创建金融专业版可视化图表...")
+    
+    # 设置金融专业版的深色主题
+    plt.style.use('dark_background')
+    
+    # 设置全局字体和颜色
+    plt.rcParams.update({
+        'font.size': 10,
+        'font.family': ['SimHei', 'Arial Unicode MS', 'DejaVu Sans'],
+        'figure.facecolor': '#0f172a',
+        'axes.facecolor': '#1e293b',
+        'axes.edgecolor': '#334155',
+        'axes.labelcolor': '#e2e8f0',
+        'xtick.color': '#94a3b8',
+        'ytick.color': '#94a3b8',
+        'grid.color': '#334155',
+        'grid.alpha': 0.3,
+        'text.color': '#e2e8f0'
+    })
+    
+    # 专业金融配色方案
+    colors = {
+        'primary': '#3b82f6',
+        'success': '#10b981', 
+        'danger': '#ef4444',
+        'warning': '#f59e0b',
+        'info': '#06b6d4',
+        'accent': '#8b5cf6'
+    }
     
     # 确保输出目录存在
     output_dir = "examples/visualization_output"
     os.makedirs(output_dir, exist_ok=True)
     
-    # 1. 策略概览图 (2x2布局)
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle('QTE框架可视化演示 - 双均线策略分析', fontsize=16, fontweight='bold')
+    # 1. 创建策略完整分析图 (2x2 子图布局)
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+    fig.patch.set_facecolor('#0f172a')
+    fig.suptitle('QTE策略完整分析 - 金融专业版', fontsize=16, fontweight='bold', color='#e2e8f0', y=0.95)
     
     # 子图1: 价格和均线
-    ax1 = axes[0, 0]
-    ax1.plot(data.index, data['price'], label='价格', linewidth=1, alpha=0.8)
-    ax1.plot(data.index, data['short_ma'], label='短期均线(5日)', linewidth=2)
-    ax1.plot(data.index, data['long_ma'], label='长期均线(20日)', linewidth=2)
+    ax1.plot(data.index, data['price'], label='价格', linewidth=1, alpha=0.8, color='#94a3b8')
+    ax1.plot(data.index, data['short_ma'], label='短期均线(5日)', linewidth=2, color=colors['primary'])
+    ax1.plot(data.index, data['long_ma'], label='长期均线(20日)', linewidth=2, color=colors['warning'])
     
     # 标记买卖点
     buy_signals = data[data['signal'] == 1]
     sell_signals = data[data['signal'] == -1]
     if not buy_signals.empty:
         ax1.scatter(buy_signals.index, buy_signals['price'], 
-                   marker='^', color='red', s=100, label='买入', zorder=5)
+                   marker='^', color=colors['success'], s=100, label='买入', zorder=5)
     if not sell_signals.empty:
         ax1.scatter(sell_signals.index, sell_signals['price'], 
-                   marker='v', color='green', s=100, label='卖出', zorder=5)
+                   marker='v', color=colors['danger'], s=100, label='卖出', zorder=5)
     
-    ax1.set_title('价格走势与交易信号')
-    ax1.set_ylabel('价格')
-    ax1.legend()
+    ax1.set_title('价格走势与交易信号', fontweight='bold', color='#e2e8f0', pad=20)
+    ax1.set_ylabel('价格', color='#e2e8f0')
+    ax1.legend(frameon=False, labelcolor='#e2e8f0')
     ax1.grid(True, alpha=0.3)
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
     
     # 子图2: 资金曲线
-    ax2 = axes[0, 1]
-    ax2.plot(data.index, data['equity'], linewidth=2, color='blue')
-    ax2.set_title('资金曲线')
-    ax2.set_ylabel('资金 (¥)')
+    ax2.plot(data.index, data['equity'], linewidth=2.5, color=colors['primary'], label='资金曲线')
+    ax2.fill_between(data.index, data['equity'], data['equity'].min(), alpha=0.2, color=colors['primary'])
+    ax2.set_title('资金曲线', fontweight='bold', color='#e2e8f0', pad=20)
+    ax2.set_ylabel('资金 (¥)', color='#e2e8f0')
     ax2.grid(True, alpha=0.3)
-    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+    ax2.legend(frameon=False, labelcolor='#e2e8f0')
     
-    # 添加收益率标注
-    total_return_pct = metrics['total_return'] * 100
-    ax2.text(0.02, 0.98, f'总收益率: {total_return_pct:.2f}%', 
-             transform=ax2.transAxes, fontsize=12, 
-             bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8),
-             verticalalignment='top')
-    
-    # 子图3: 回撤分析
-    ax3 = axes[1, 0]
-    ax3.fill_between(data.index, 0, data['drawdown'] * 100, 
-                     color='red', alpha=0.3)
-    ax3.plot(data.index, data['drawdown'] * 100, color='red', linewidth=1)
-    ax3.set_title('回撤分析')
-    ax3.set_ylabel('回撤 (%)')
-    ax3.set_xlabel('日期')
-    ax3.invert_yaxis()
+    # 子图3: 每日收益率分布
+    daily_returns = data['equity'].pct_change().dropna()
+    ax3.hist(daily_returns, bins=50, alpha=0.7, color=colors['info'], edgecolor='#0f172a')
+    ax3.axvline(daily_returns.mean(), color=colors['success'], linestyle='--', linewidth=2, 
+                label=f'均值: {daily_returns.mean():.4f}')
+    ax3.set_title('每日收益率分布', fontweight='bold', color='#e2e8f0', pad=20)
+    ax3.set_xlabel('每日收益率', color='#e2e8f0')
+    ax3.set_ylabel('频次', color='#e2e8f0')
     ax3.grid(True, alpha=0.3)
-    ax3.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d'))
+    ax3.legend(frameon=False, labelcolor='#e2e8f0')
     
-    # 子图4: 收益分布
-    ax4 = axes[1, 1]
-    daily_returns = data['returns'] * 100
-    returns_clean = daily_returns.dropna()
-    if not returns_clean.empty:
-        ax4.hist(returns_clean, bins=30, alpha=0.7, color='skyblue', edgecolor='black')
-        ax4.axvline(returns_clean.mean(), color='red', linestyle='--', 
-                    label=f'均值: {returns_clean.mean():.3f}%')
-    ax4.set_title('日收益率分布')
-    ax4.set_xlabel('日收益率 (%)')
-    ax4.set_ylabel('频次')
-    ax4.legend()
+    # 子图4: 回撤分析
+    rolling_max = data['equity'].expanding().max()
+    drawdown = (data['equity'] - rolling_max) / rolling_max
+    ax4.fill_between(data.index, drawdown, 0, alpha=0.7, color=colors['danger'], label='回撤')
+    ax4.axhline(drawdown.min(), color=colors['warning'], linestyle='--', linewidth=2, 
+                label=f'最大回撤: {drawdown.min():.2%}')
+    ax4.set_title('回撤分析', fontweight='bold', color='#e2e8f0', pad=20)
+    ax4.set_ylabel('回撤比例', color='#e2e8f0')
     ax4.grid(True, alpha=0.3)
+    ax4.legend(frameon=False, labelcolor='#e2e8f0')
     
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/strategy_overview.png", dpi=300, bbox_inches='tight')
-    plt.close(fig)
+    strategy_path = f"{output_dir}/strategy_overview.png"
+    plt.savefig(strategy_path, dpi=300, bbox_inches='tight', facecolor='#0f172a', edgecolor='none')
+    plt.close()
     
-    # 2. 单独的资金曲线图
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(data.index, data['equity'], linewidth=2, color='blue')
-    ax.set_title('资金曲线详细图', fontsize=14, fontweight='bold')
-    ax.set_ylabel('资金 (¥)')
-    ax.set_xlabel('日期')
+    # 2. 创建资金曲线详细图
+    fig, ax = plt.subplots(1, 1, figsize=(14, 8))
+    fig.patch.set_facecolor('#0f172a')
+    
+    # 主要资金曲线
+    ax.plot(data.index, data['equity'], color=colors['primary'], linewidth=3, label='资金曲线', alpha=0.9)
+    
+    # 添加基准线
+    baseline = data['equity'].iloc[0] * (1 + 0.05) ** ((data.index - data.index[0]).days / 365.25)
+    ax.plot(data.index, baseline, color=colors['warning'], linewidth=2, linestyle='--', 
+            label='5%年化基准', alpha=0.7)
+    
+    # 填充区域
+    ax.fill_between(data.index, data['equity'], baseline, 
+                   where=(data['equity'] >= baseline), alpha=0.2, color=colors['success'], label='超额收益')
+    ax.fill_between(data.index, data['equity'], baseline, 
+                   where=(data['equity'] < baseline), alpha=0.2, color=colors['danger'], label='落后基准')
+    
+    # 添加重要标记点
+    max_equity_idx = data['equity'].idxmax()
+    max_equity_val = data['equity'].max()
+    ax.scatter([max_equity_idx], [max_equity_val], color=colors['success'], s=100, zorder=5, 
+              label=f'最高点: ¥{max_equity_val:,.0f}')
+    
+    # 最大回撤点
+    rolling_max = data['equity'].expanding().max()
+    drawdown = (data['equity'] - rolling_max) / rolling_max
+    max_dd_idx = drawdown.idxmin()
+    max_dd_val = data['equity'].loc[max_dd_idx]
+    ax.scatter([max_dd_idx], [max_dd_val], color=colors['danger'], s=100, zorder=5,
+              label=f'最大回撤点: ¥{max_dd_val:,.0f}')
+    
+    ax.set_title('QTE策略资金曲线详细分析', fontsize=14, fontweight='bold', color='#e2e8f0', pad=20)
+    ax.set_xlabel('日期', color='#e2e8f0')
+    ax.set_ylabel('资金 (¥)', color='#e2e8f0')
     ax.grid(True, alpha=0.3)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax.legend(loc='upper left', frameon=False, labelcolor='#e2e8f0')
     
-    # 添加统计信息
-    stats_text = f"""
-    初始资金: ¥{data['equity'].iloc[0]:,.0f}
-    最终资金: ¥{data['equity'].iloc[-1]:,.0f}
-    总收益率: {metrics['total_return']:.2%}
-    年化收益率: {metrics['annual_return']:.2%}
-    最大回撤: {metrics['max_drawdown']:.2%}
-    夏普比率: {metrics['sharpe_ratio']:.4f}
-    """
-    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, fontsize=10,
-            bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8),
-            verticalalignment='top')
+    # 格式化Y轴
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'¥{x:,.0f}'))
+    
+    # 添加性能文本框
+    textstr = f'''核心指标摘要:
+总收益率: {metrics['total_return']:.2%}
+年化收益: {metrics['annual_return']:.2%}
+最大回撤: {metrics['max_drawdown']:.2%}
+夏普比率: {metrics['sharpe_ratio']:.4f}
+'''
+    
+    props = dict(boxstyle='round', facecolor='#1e293b', alpha=0.8, edgecolor='#334155')
+    ax.text(0.02, 0.98, textstr, transform=ax.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props, color='#e2e8f0')
     
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/equity_curve.png", dpi=300, bbox_inches='tight')
-    plt.close(fig)
+    equity_path = f"{output_dir}/equity_curve.png"
+    plt.savefig(equity_path, dpi=300, bbox_inches='tight', facecolor='#0f172a', edgecolor='none')
+    plt.close()
     
-    print("✅ 图表生成完成")
+    print(f"✅ 策略分析图已保存: {strategy_path}")
+    print(f"✅ 资金曲线图已保存: {equity_path}")
+    
     return output_dir
 
 
 def generate_html_report(data, metrics, output_dir):
-    """生成HTML报告"""
-    print("📄 生成HTML报告...")
+    """生成金融专业版HTML报告"""
+    print("📄 生成金融专业版HTML报告...")
     
     html_content = f"""
     <!DOCTYPE html>
@@ -244,202 +295,446 @@ def generate_html_report(data, metrics, output_dir):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>QTE框架可视化报告演示</title>
+        <title>QTE量化框架 - 金融专业报告</title>
         <style>
-            body {{
-                font-family: 'Microsoft YaHei', Arial, sans-serif;
+            * {{
                 margin: 0;
-                padding: 20px;
-                background-color: #f5f5f5;
+                padding: 0;
+                box-sizing: border-box;
             }}
+            
+            body {{
+                font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                background: #0a0e1a;
+                color: #e2e8f0;
+                line-height: 1.7;
+                min-height: 100vh;
+            }}
+            
             .container {{
-                max-width: 1200px;
+                max-width: 1400px;
                 margin: 0 auto;
-                background-color: white;
-                padding: 30px;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                padding: 32px 24px;
             }}
-            h1 {{
-                color: #2c3e50;
+            
+            .header {{
+                background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 50%, #7c3aed 100%);
+                padding: 48px 40px;
+                border-radius: 20px;
                 text-align: center;
-                border-bottom: 3px solid #3498db;
-                padding-bottom: 10px;
+                margin-bottom: 40px;
+                position: relative;
+                overflow: hidden;
             }}
-            h2 {{
-                color: #34495e;
-                border-left: 4px solid #3498db;
-                padding-left: 15px;
+            
+            .header::before {{
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+                opacity: 0.3;
             }}
-            .metrics-grid {{
+            
+            .header h1 {{
+                font-size: 3rem;
+                font-weight: 700;
+                color: white;
+                margin-bottom: 16px;
+                letter-spacing: -0.02em;
+                position: relative;
+                z-index: 1;
+            }}
+            
+            .header .subtitle {{
+                font-size: 1.25rem;
+                color: #e0e7ff;
+                font-weight: 300;
+                position: relative;
+                z-index: 1;
+            }}
+            
+            .strategy-info {{
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                border-radius: 16px;
+                padding: 32px;
+                margin: 32px 0;
+                border: 1px solid #334155;
+            }}
+            
+            .strategy-info h2 {{
+                color: #f1f5f9;
+                font-size: 1.5rem;
+                margin-bottom: 20px;
+                border-bottom: 2px solid #3b82f6;
+                padding-bottom: 12px;
+            }}
+            
+            .info-grid {{
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
                 gap: 20px;
-                margin: 20px 0;
+                margin-top: 20px;
             }}
-            .metric-card {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+            
+            .info-item {{
+                background: #0f172a;
                 padding: 20px;
-                border-radius: 10px;
+                border-radius: 8px;
+                border: 1px solid #1e293b;
+            }}
+            
+            .info-label {{
+                color: #94a3b8;
+                font-size: 0.875rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                margin-bottom: 8px;
+            }}
+            
+            .info-value {{
+                color: #f1f5f9;
+                font-size: 1.1rem;
+                font-weight: 600;
+            }}
+            
+            .dashboard {{
+                display: grid;
+                grid-template-columns: 2fr 1fr;
+                gap: 32px;
+                margin: 40px 0;
+            }}
+            
+            .main-metrics {{
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                border-radius: 16px;
+                padding: 32px;
+                border: 1px solid #334155;
+            }}
+            
+            .side-metrics {{
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }}
+            
+            .metric-large {{
+                text-align: center;
+                padding: 32px;
+                border-bottom: 1px solid #475569;
+            }}
+            
+            .metric-large:last-child {{
+                border-bottom: none;
+            }}
+            
+            .metric-large .value {{
+                font-size: 3.5rem;
+                font-weight: 800;
+                margin-bottom: 12px;
+                background: linear-gradient(135deg, #06b6d4, #3b82f6);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }}
+            
+            .metric-large .label {{
+                font-size: 1rem;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                font-weight: 600;
+            }}
+            
+            .metric-small {{
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                padding: 24px;
+                border-radius: 12px;
+                border: 1px solid #334155;
                 text-align: center;
             }}
-            .metric-value {{
-                font-size: 2em;
-                font-weight: bold;
-                margin: 10px 0;
+            
+            .metric-small .value {{
+                font-size: 1.75rem;
+                font-weight: 700;
+                color: #06b6d4;
+                margin-bottom: 8px;
             }}
-            .metric-label {{
-                font-size: 0.9em;
-                opacity: 0.9;
+            
+            .metric-small .label {{
+                font-size: 0.875rem;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
             }}
+            
+            .section {{
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                border-radius: 16px;
+                padding: 40px;
+                margin: 32px 0;
+                border: 1px solid #334155;
+            }}
+            
+            .section-title {{
+                font-size: 1.75rem;
+                font-weight: 600;
+                color: #f1f5f9;
+                margin-bottom: 32px;
+                border-bottom: 2px solid #3b82f6;
+                padding-bottom: 16px;
+            }}
+            
             .chart-container {{
+                background: #0f172a;
+                padding: 24px;
+                border-radius: 12px;
+                border: 1px solid #1e293b;
                 text-align: center;
-                margin: 30px 0;
             }}
+            
             .chart-container img {{
                 max-width: 100%;
                 height: auto;
-                border-radius: 10px;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                border-radius: 8px;
             }}
-            .summary-table {{
+            
+            .financial-table {{
                 width: 100%;
                 border-collapse: collapse;
-                margin: 20px 0;
+                margin: 24px 0;
+                background: #0f172a;
+                border-radius: 8px;
+                overflow: hidden;
             }}
-            .summary-table th, .summary-table td {{
-                border: 1px solid #ddd;
-                padding: 12px;
-                text-align: left;
-            }}
-            .summary-table th {{
-                background-color: #3498db;
+            
+            .financial-table th {{
+                background: linear-gradient(135deg, #1e3a8a, #3730a3);
                 color: white;
+                font-weight: 700;
+                padding: 20px 16px;
+                text-align: left;
+                font-size: 0.875rem;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
             }}
-            .summary-table tr:nth-child(even) {{
-                background-color: #f2f2f2;
+            
+            .financial-table td {{
+                padding: 16px;
+                border-bottom: 1px solid #1e293b;
+                font-size: 0.95rem;
+                color: #e2e8f0;
             }}
+            
+            .financial-table tbody tr:hover {{
+                background: #1e293b;
+            }}
+            
+            .trend-up {{ 
+                color: #10b981; 
+                font-weight: 600;
+            }}
+            
+            .trend-down {{ 
+                color: #ef4444; 
+                font-weight: 600;
+            }}
+            
+            .neutral {{ 
+                color: #06b6d4; 
+                font-weight: 600;
+            }}
+            
             .footer {{
                 text-align: center;
-                margin-top: 40px;
-                padding-top: 20px;
-                border-top: 1px solid #ddd;
-                color: #7f8c8d;
+                margin-top: 60px;
+                padding: 32px;
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+                border-radius: 16px;
+                border: 1px solid #334155;
+            }}
+            
+            .footer p {{
+                color: #94a3b8;
+                font-size: 0.875rem;
+                margin: 8px 0;
+            }}
+            
+            @media (max-width: 1024px) {{
+                .dashboard {{
+                    grid-template-columns: 1fr;
+                }}
+            }}
+            
+            @media (max-width: 768px) {{
+                .header h1 {{ font-size: 2.5rem; }}
+                .container {{ padding: 20px 16px; }}
+                .section {{ padding: 24px; }}
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🚀 QTE框架可视化报告演示</h1>
+            <div class="header">
+                <h1>Professional Trading Analytics</h1>
+                <p class="subtitle">QTE量化交易引擎 · 专业级金融分析报告</p>
+            </div>
             
-            <h2>📊 策略概览</h2>
-            <p><strong>策略名称:</strong> 双均线策略演示</p>
-            <p><strong>回测期间:</strong> {data.index[0].strftime('%Y-%m-%d')} 至 {data.index[-1].strftime('%Y-%m-%d')}</p>
-            <p><strong>初始资金:</strong> ¥{data['equity'].iloc[0]:,.0f}</p>
-            
-            <h2>🎯 核心指标</h2>
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <div class="metric-label">总收益率</div>
-                    <div class="metric-value">{metrics['total_return']:.2%}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">年化收益率</div>
-                    <div class="metric-value">{metrics['annual_return']:.2%}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">最大回撤</div>
-                    <div class="metric-value">{metrics['max_drawdown']:.2%}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">夏普比率</div>
-                    <div class="metric-value">{metrics['sharpe_ratio']:.4f}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">年化波动率</div>
-                    <div class="metric-value">{metrics['volatility']:.2%}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">胜率</div>
-                    <div class="metric-value">{metrics['win_rate']:.2%}</div>
+            <div class="strategy-info">
+                <h2>策略概览信息</h2>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">策略名称</div>
+                        <div class="info-value">双均线策略演示</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">回测期间</div>
+                        <div class="info-value">{data.index[0].strftime('%Y-%m-%d')} 至 {data.index[-1].strftime('%Y-%m-%d')}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">初始资金</div>
+                        <div class="info-value">¥{data['equity'].iloc[0]:,.0f}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">最终资金</div>
+                        <div class="info-value">¥{data['equity'].iloc[-1]:,.0f}</div>
+                    </div>
                 </div>
             </div>
             
-            <h2>📈 策略分析图表</h2>
-            <div class="chart-container">
-                <h3>策略完整分析</h3>
-                <img src="strategy_overview.png" alt="策略概览图">
+            <div class="dashboard">
+                <div class="main-metrics">
+                    <div class="metric-large">
+                        <div class="value {'trend-up' if metrics['total_return'] > 0 else 'trend-down'}">{metrics['total_return']:+.2%}</div>
+                        <div class="label">Total Return</div>
+                    </div>
+                    <div class="metric-large">
+                        <div class="value {'trend-up' if metrics['annual_return'] > 0 else 'trend-down'}">{metrics['annual_return']:+.2%}</div>
+                        <div class="label">Annualized Return</div>
+                    </div>
+                    <div class="metric-large">
+                        <div class="value trend-down">{metrics['max_drawdown']:.2%}</div>
+                        <div class="label">Maximum Drawdown</div>
+                    </div>
+                </div>
+                
+                <div class="side-metrics">
+                    <div class="metric-small">
+                        <div class="value neutral">{metrics['sharpe_ratio']:.2f}</div>
+                        <div class="label">Sharpe Ratio</div>
+                    </div>
+                    <div class="metric-small">
+                        <div class="value">{metrics['volatility']:.1%}</div>
+                        <div class="label">Volatility</div>
+                    </div>
+                    <div class="metric-small">
+                        <div class="value {'trend-up' if metrics['win_rate'] > 0.5 else 'neutral'}">{metrics['win_rate']:.1%}</div>
+                        <div class="label">Win Rate</div>
+                    </div>
+                    <div class="metric-small">
+                        <div class="value">{metrics['trades']}</div>
+                        <div class="label">Total Trades</div>
+                    </div>
+                </div>
             </div>
             
-            <div class="chart-container">
-                <h3>资金曲线详细图</h3>
-                <img src="equity_curve.png" alt="资金曲线图">
+            <div class="section">
+                <h2 class="section-title">Strategy Performance Overview</h2>
+                <div class="chart-container">
+                    <img src="strategy_overview.png" alt="Strategy Performance">
+                </div>
             </div>
             
-            <h2>📋 详细统计</h2>
-            <table class="summary-table">
-                <tr>
-                    <th>指标</th>
-                    <th>数值</th>
-                    <th>说明</th>
-                </tr>
-                <tr>
-                    <td>总收益率</td>
-                    <td>{metrics['total_return']:.2%}</td>
-                    <td>整个回测期间的总收益率</td>
-                </tr>
-                <tr>
-                    <td>年化收益率</td>
-                    <td>{metrics['annual_return']:.2%}</td>
-                    <td>年化后的收益率</td>
-                </tr>
-                <tr>
-                    <td>年化波动率</td>
-                    <td>{metrics['volatility']:.2%}</td>
-                    <td>收益率的年化标准差</td>
-                </tr>
-                <tr>
-                    <td>夏普比率</td>
-                    <td>{metrics['sharpe_ratio']:.4f}</td>
-                    <td>风险调整后的收益率</td>
-                </tr>
-                <tr>
-                    <td>最大回撤</td>
-                    <td>{metrics['max_drawdown']:.2%}</td>
-                    <td>从峰值到谷值的最大跌幅</td>
-                </tr>
-                <tr>
-                    <td>交易次数</td>
-                    <td>{metrics['trades']}</td>
-                    <td>总交易信号数量</td>
-                </tr>
-                <tr>
-                    <td>胜率</td>
-                    <td>{metrics['win_rate']:.2%}</td>
-                    <td>盈利交易占比</td>
-                </tr>
-                <tr>
-                    <td>最终资金</td>
-                    <td>¥{data['equity'].iloc[-1]:,.0f}</td>
-                    <td>回测结束时的资金</td>
-                </tr>
-            </table>
+            <div class="section">
+                <h2 class="section-title">Equity Curve Analysis</h2>
+                <div class="chart-container">
+                    <img src="equity_curve.png" alt="Equity Curve">
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2 class="section-title">Detailed Performance Metrics</h2>
+                <table class="financial-table">
+                    <thead>
+                        <tr>
+                            <th>指标名称</th>
+                            <th>数值</th>
+                            <th>基准</th>
+                            <th>评级</th>
+                            <th>说明</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>总收益率</td>
+                            <td class="{'trend-up' if metrics['total_return'] > 0 else 'trend-down'}">{metrics['total_return']:+.2%}</td>
+                            <td>15%</td>
+                            <td>{'🟢 优秀' if metrics['total_return'] > 0.15 else '🟡 良好' if metrics['total_return'] > 0.05 else '🔴 较差'}</td>
+                            <td>策略整体盈利能力</td>
+                        </tr>
+                        <tr>
+                            <td>年化收益率</td>
+                            <td class="{'trend-up' if metrics['annual_return'] > 0 else 'trend-down'}">{metrics['annual_return']:+.2%}</td>
+                            <td>12%</td>
+                            <td>{'🟢 优秀' if metrics['annual_return'] > 0.12 else '🟡 良好' if metrics['annual_return'] > 0.08 else '🔴 较差'}</td>
+                            <td>年化后的收益表现</td>
+                        </tr>
+                        <tr>
+                            <td>最大回撤</td>
+                            <td class="trend-down">{metrics['max_drawdown']:.2%}</td>
+                            <td>-10%</td>
+                            <td>{'🟢 优秀' if metrics['max_drawdown'] > -0.1 else '🟡 良好' if metrics['max_drawdown'] > -0.2 else '🔴 较差'}</td>
+                            <td>风险控制能力</td>
+                        </tr>
+                        <tr>
+                            <td>夏普比率</td>
+                            <td class="neutral">{metrics['sharpe_ratio']:.4f}</td>
+                            <td>1.5</td>
+                            <td>{'🟢 优秀' if metrics['sharpe_ratio'] > 1.5 else '🟡 良好' if metrics['sharpe_ratio'] > 1.0 else '🔴 较差'}</td>
+                            <td>风险调整后收益</td>
+                        </tr>
+                        <tr>
+                            <td>年化波动率</td>
+                            <td class="neutral">{metrics['volatility']:.2%}</td>
+                            <td>15%</td>
+                            <td>{'🟢 优秀' if metrics['volatility'] < 0.15 else '🟡 中等' if metrics['volatility'] < 0.25 else '🔴 较高'}</td>
+                            <td>收益稳定性</td>
+                        </tr>
+                        <tr>
+                            <td>胜率</td>
+                            <td class="{'trend-up' if metrics['win_rate'] > 0.5 else 'neutral'}">{metrics['win_rate']:.2%}</td>
+                            <td>55%</td>
+                            <td>{'🟢 优秀' if metrics['win_rate'] > 0.6 else '🟡 良好' if metrics['win_rate'] > 0.5 else '🔴 较差'}</td>
+                            <td>交易成功率</td>
+                        </tr>
+                        <tr>
+                            <td>交易次数</td>
+                            <td class="neutral">{metrics['trades']}</td>
+                            <td>100-200</td>
+                            <td>{'🟢 适中' if 100 <= metrics['trades'] <= 200 else '🟡 偏多' if metrics['trades'] > 200 else '🟡 偏少'}</td>
+                            <td>交易频率</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
             
             <div class="footer">
-                <p>📊 由QTE量化交易引擎生成 | 🕒 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                <p>💡 这是一个演示报告，展示了QTE框架的可视化功能</p>
+                <p><strong>QTE Quantitative Trading Engine</strong></p>
+                <p>Professional Financial Analytics Report</p>
+                <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC</p>
             </div>
         </div>
     </body>
     </html>
     """
     
-    html_path = f"{output_dir}/visualization_report.html"
+    html_path = f"{output_dir}/financial_pro_report.html"
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
     
-    print(f"✅ HTML报告已保存: {html_path}")
+    print(f"✅ 金融专业版HTML报告已保存: {html_path}")
     return html_path
 
 
@@ -465,7 +760,7 @@ def print_summary(data, metrics, output_dir):
     print(f"\n📁 输出文件:")
     print(f"   📊 strategy_overview.png - 策略完整分析图")
     print(f"   📈 equity_curve.png - 资金曲线详细图")
-    print(f"   📄 visualization_report.html - HTML报告")
+    print(f"   📄 financial_pro_report.html - 金融专业版HTML报告")
     print(f"\n📂 输出目录: {os.path.abspath(output_dir)}")
 
 

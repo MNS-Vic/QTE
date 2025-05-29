@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QTE量化框架 - 现代极简报告</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: #0f172a;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            padding: 40px 0;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 300;
+            color: #1e293b;
+            margin-bottom: 16px;
+            letter-spacing: -0.025em;
+        }
+        
+        .header .subtitle {
+            font-size: 1.1rem;
+            color: #64748b;
+            font-weight: 400;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 24px;
+            margin: 40px 0;
+        }
+        
+        .metric-card {
+            background: white;
+            padding: 32px 24px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        
+        .metric-value {
+            font-size: 2.25rem;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 8px;
+            letter-spacing: -0.025em;
+        }
+        
+        .metric-label {
+            font-size: 0.875rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 500;
+        }
+        
+        .section {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            margin: 32px 0;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 500;
+            color: #1e293b;
+            margin-bottom: 24px;
+            letter-spacing: -0.025em;
+        }
+        
+        .chart-container {
+            text-align: center;
+            margin: 24px 0;
+        }
+        
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .performance-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 24px 0;
+        }
+        
+        .performance-table th {
+            background: #f8fafc;
+            color: #374151;
+            font-weight: 600;
+            padding: 16px;
+            text-align: left;
+            border-bottom: 2px solid #e5e7eb;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .performance-table td {
+            padding: 16px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 0.95rem;
+        }
+        
+        .performance-table tbody tr:hover {
+            background: #f9fafb;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 60px;
+            padding: 32px;
+            background: white;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+        
+        .positive { color: #059669; }
+        .negative { color: #dc2626; }
+        
+        @media (max-width: 768px) {
+            .header h1 { font-size: 2rem; }
+            .container { padding: 20px 16px; }
+            .section { padding: 24px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>量化策略分析报告</h1>
+            <p class="subtitle">专业级量化交易系统 · 现代极简设计</p>
+        </div>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-value positive">+24.56%</div>
+                <div class="metric-label">总收益率</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value positive">+18.32%</div>
+                <div class="metric-label">年化收益</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value negative">-8.45%</div>
+                <div class="metric-label">最大回撤</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">1.85</div>
+                <div class="metric-label">夏普比率</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value">12.8%</div>
+                <div class="metric-label">波动率</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value positive">68.5%</div>
+                <div class="metric-label">胜率</div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">策略表现概览</h2>
+            <div class="chart-container">
+                <img src="strategy_overview.png" alt="策略表现概览">
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">资金曲线分析</h2>
+            <div class="chart-container">
+                <img src="equity_curve.png" alt="资金曲线">
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">详细表现指标</h2>
+            <table class="performance-table">
+                <thead>
+                    <tr>
+                        <th>指标名称</th>
+                        <th>数值</th>
+                        <th>评级</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>总收益率</td>
+                        <td class="positive">+24.56%</td>
+                        <td>优秀</td>
+                        <td>策略整体盈利能力</td>
+                    </tr>
+                    <tr>
+                        <td>年化收益率</td>
+                        <td class="positive">+18.32%</td>
+                        <td>良好</td>
+                        <td>年化后的收益表现</td>
+                    </tr>
+                    <tr>
+                        <td>最大回撤</td>
+                        <td class="negative">-8.45%</td>
+                        <td>良好</td>
+                        <td>风险控制能力</td>
+                    </tr>
+                    <tr>
+                        <td>夏普比率</td>
+                        <td>1.85</td>
+                        <td>优秀</td>
+                        <td>风险调整收益</td>
+                    </tr>
+                    <tr>
+                        <td>年化波动率</td>
+                        <td>12.8%</td>
+                        <td>中等</td>
+                        <td>收益稳定性</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <p>QTE量化交易引擎 · 现代极简报告</p>
+            <p>Generated on 2024-12-18 15:30:00</p>
+        </div>
+    </div>
+</body>
+</html>
