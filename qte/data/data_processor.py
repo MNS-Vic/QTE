@@ -68,9 +68,8 @@ class DataProcessor:
         
         df = data.copy()
         
-        # 处理目标频率，将'M'替换为'ME'（月末标识）
-        if target_freq == 'M':
-            target_freq = 'ME'  # 使用月末标识替代已弃用的月度标识
+        # 处理目标频率，保持'M'不变（月度标识）
+        # 注意：在新版pandas中，'M'仍然有效，'ME'已被弃用
         
         # 根据方法进行重采样
         if method.lower() == 'ohlc':
@@ -164,13 +163,13 @@ class DataProcessor:
         
         # 根据方法创建通用索引
         if method.lower() == 'outer':
-            # 修复：使用reduce方法逐个合并索引
+            # 修复：使用reduce方法逐个合并索引，移除sort=True参数
             from functools import reduce
-            common_index = reduce(lambda x, y: x.union(y, sort=True), all_indices)
+            common_index = reduce(lambda x, y: x.union(y), all_indices)
         elif method.lower() == 'inner':
-            # 修复：使用reduce方法逐个合并索引
+            # 修复：使用reduce方法逐个合并索引，移除sort=True参数
             from functools import reduce
-            common_index = reduce(lambda x, y: x.intersection(y, sort=True), all_indices)
+            common_index = reduce(lambda x, y: x.intersection(y), all_indices)
         else:
             raise ValueError(f"不支持的对齐方法: {method}. 支持的方法: 'outer', 'inner'")
         

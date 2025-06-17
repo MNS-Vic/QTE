@@ -74,7 +74,7 @@ class VirtualExchange:
         """
         try:
             # 更新时间管理器
-            self.time_manager.update_time(timestamp)
+            self.time_manager.set_virtual_time(timestamp)
             
             # 构造Tick数据
             tick_data = {
@@ -142,7 +142,7 @@ class VirtualExchange:
     def _emit_market_data_event(self, symbol: str, tick_data: dict):
         """发送市场数据事件"""
         event = Event(
-            event_type=EventType.MARKET_DATA,
+            event_type="MARKET_DATA",  # 使用字符串而不是枚举
             data={
                 'symbol': symbol,
                 'tick_data': tick_data,

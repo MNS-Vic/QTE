@@ -458,7 +458,7 @@ class MockExchange:
             "symbol": symbol,
             "bids": depth_data["bids"],
             "asks": depth_data["asks"],
-            "timestamp": int(float(order_book.order_map.values()[0].timestamp) * 1000) if order_book.order_map else int(time.time() * 1000)
+            "timestamp": int(float(list(order_book.order_map.values())[0].timestamp) * 1000) if order_book.order_map else int(time.time() * 1000)
         }
     
     def get_account(self, user_id: str) -> Optional[Dict[str, Any]]:
