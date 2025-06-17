@@ -4,6 +4,7 @@
 WebSocket订单更新推送功能边界情况与错误处理测试
 """
 import pytest
+import pytest_asyncio
 import asyncio
 import json
 import time
@@ -40,7 +41,7 @@ class TestWebSocketOrderEdgeCasesIntegration:
             logger.info("所有任务已取消")
         loop.close()
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def setup_exchange(self):
         """创建交易所环境"""
         # 创建撮合引擎
@@ -97,7 +98,7 @@ class TestWebSocketOrderEdgeCasesIntegration:
         logger.info("清理测试资源...")
         await asyncio.sleep(0.2)
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def setup_mock_websocket(self, setup_exchange):
         """创建模拟WebSocket客户端环境"""
         websocket_server = setup_exchange["websocket_server"]
@@ -175,7 +176,7 @@ class TestWebSocketOrderEdgeCasesIntegration:
         if websocket_server.clients.get(mock_websocket):
             del websocket_server.clients[mock_websocket]
     
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def setup_low_balance_websocket(self, setup_exchange):
         """创建低余额用户的WebSocket客户端环境"""
         websocket_server = setup_exchange["websocket_server"]

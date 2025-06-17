@@ -24,9 +24,17 @@ class TestStrategyFlow(unittest.TestCase):
         
         # 初始化组件
         self.engine = VectorEngine()
-        self.portfolio = BasePortfolio(initial_capital=100000.0)
-        self.execution_handler = SimpleExecutionHandler()
-        self.strategy = SimpleMovingAverageStrategy(short_window=5, long_window=20)
+        # 创建事件循环用于BasePortfolio和SimpleExecutionHandler
+        from qte.core.event_loop import EventLoop
+        self.event_loop = EventLoop()
+        self.portfolio = BasePortfolio(initial_capital=100000.0, event_loop=self.event_loop)
+        self.execution_handler = SimpleExecutionHandler(event_loop=self.event_loop)
+        self.strategy = SimpleMovingAverageStrategy(
+            symbols=['AAPL', 'MSFT'],
+            event_loop=self.event_loop,
+            short_window=5,
+            long_window=20
+        )
         
         # 设置数据处理器
         self.data_processor = DataProcessor()
