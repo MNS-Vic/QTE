@@ -1,0 +1,63 @@
+[run]
+source = qte
+omit = 
+    */tests/*
+    */test_*
+    */__pycache__/*
+    */venv/*
+    */env/*
+    */build/*
+    */dist/*
+    */.tox/*
+    */setup.py
+    */conftest.py
+    # 排除主函数和示例代码
+    */main.py
+    */__main__.py
+    */examples/*
+    */demo/*
+    # 排除第三方集成代码
+    */vnpy/*
+    */external/*
+
+[report]
+# 设置覆盖率门禁
+fail_under = 90
+
+# 显示缺失的行号
+show_missing = True
+
+# 跳过覆盖率为100%的文件
+skip_covered = False
+
+# 精确度
+precision = 1
+
+# 排除特定行
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if self.debug:
+    if settings.DEBUG
+    raise AssertionError
+    raise NotImplementedError
+    if 0:
+    if __name__ == .__main__.:
+    class .*\bProtocol\):
+    @(abc\.)?abstractmethod
+
+[html]
+directory = htmlcov
+title = QTE项目测试覆盖率报告
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+pretty_print = true
+
+[paths]
+source = 
+    qte/
+    */site-packages/qte/
