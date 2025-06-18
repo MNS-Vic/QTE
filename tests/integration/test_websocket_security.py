@@ -631,7 +631,7 @@ class TestWebSocketSecurity:
             assert "error" in response, f"请求{test_case['id']}的拒绝响应中未包含错误信息"
         
         # 清理连接
-        await websocket_server.ws_disconnect(mock_websocket)
+        await websocket_server._cleanup_client(mock_websocket)
     
     @pytest.mark.asyncio
     async def test_message_size_limits(self, setup_exchange):
