@@ -90,10 +90,11 @@ class TestDataProcessor:
     
     def test_resample_daily_to_monthly_ohlc(self):
         """测试日线转月线的OHLC重采样"""
+        # 使用兼容的月末频率 - 直接使用M频率
         result = DataProcessor.resample(
-            self.ohlcv_data, 
-            source_freq='1D', 
-            target_freq='ME',
+            self.ohlcv_data,
+            source_freq='1D',
+            target_freq='M',
             method='ohlc'
         )
         

@@ -49,7 +49,11 @@ def check_vnpy_availability():
     
     try:
         import vnpy
-        vnpy_info["version"] = vnpy.__version__
+        # 尝试获取版本信息，如果没有则使用默认值
+        try:
+            vnpy_info["version"] = vnpy.__version__
+        except AttributeError:
+            vnpy_info["version"] = "unknown"
         vnpy_info["status"] = "已安装"
         
         # 检查各个组件

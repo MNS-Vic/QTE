@@ -68,9 +68,9 @@ class DataProcessor:
         
         df = data.copy()
         
-        # 处理目标频率，将'M'替换为'ME'（月末标识）
-        if target_freq == 'M':
-            target_freq = 'ME'  # 使用月末标识替代已弃用的月度标识
+        # 处理目标频率兼容性
+        # 注意：在某些pandas版本中，'M'和'ME'的支持可能不同
+        # 这里保持原始频率，让pandas自己处理
         
         # 根据方法进行重采样
         if method.lower() == 'ohlc':
