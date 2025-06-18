@@ -8,7 +8,8 @@ from qte.core.events import MarketEvent, SignalEvent
 from qte.core.event_loop import EventLoop
 from .interfaces import Strategy
 from qte.data.interfaces import DataProvider
-from qte_analysis_reporting.logger import app_logger
+import logging
+app_logger = logging.getLogger(__name__)
 
 class SimpleMovingAverageStrategy(Strategy):
     """
@@ -127,13 +128,13 @@ class SimpleMovingAverageStrategy(Strategy):
         if not self.was_short_above_long[symbol] and current_short_above_long:  # 金叉: 短期上穿长期
             signal_type = "LONG"
             app_logger.info(f"策略 '{self.name}' ({symbol}): 金叉信号! ShortSMA={short_sma:.2f}, LongSMA={long_sma:.2f}")
-            signal = SignalEvent(symbol=symbol, signal_type=signal_type, strength=1.0, timestamp=event.timestamp)
-            self.event_loop.add_event(signal)
+            signal = SignalEvent(symbol=symbol, timestamp=event.timestamp, signal_type=signal_type, direction=1, strength=1.0)
+            self.event_loop.put_event(signal)
         elif self.was_short_above_long[symbol] and not current_short_above_long:  # 死叉: 短期下穿长期
             signal_type = "SHORT"
             app_logger.info(f"策略 '{self.name}' ({symbol}): 死叉信号! ShortSMA={short_sma:.2f}, LongSMA={long_sma:.2f}")
-            signal = SignalEvent(symbol=symbol, signal_type=signal_type, strength=1.0, timestamp=event.timestamp)
-            self.event_loop.add_event(signal)
+            signal = SignalEvent(symbol=symbol, timestamp=event.timestamp, signal_type=signal_type, direction=-1, strength=1.0)
+            self.event_loop.put_event(signal)
         
         # 更新前一状态
         self.was_short_above_long[symbol] = current_short_above_long 

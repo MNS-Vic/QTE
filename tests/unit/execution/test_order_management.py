@@ -1,26 +1,31 @@
 import unittest
 from datetime import datetime
-from qte.core.events import OrderEvent, FillEvent
-from qte.execution.basic_broker import BasicBroker
+from qte.core.events import OrderEvent, FillEvent, OrderDirection, OrderType
+from qte.execution.basic_broker import BasicBroker, FixedPercentageCommission, SimpleRandomSlippage
 from qte.execution.simple_execution_handler import SimpleExecutionHandler
+from qte.core.event_loop import EventLoop
 
 class TestOrderManagement(unittest.TestCase):
     """测试订单管理系统"""
     
     def setUp(self):
         """设置测试环境"""
-        # 创建事件循环
-        from qte.core.event_loop import EventLoop
+        # 初始化事件循环
         self.event_loop = EventLoop()
 
         # 初始化执行处理器
-        self.execution_handler = SimpleExecutionHandler(self.event_loop)
+        self.execution_handler = SimpleExecutionHandler(event_loop=self.event_loop)
+
+        # 初始化佣金和滑点模型
+        self.commission_model = FixedPercentageCommission(commission_rate=0.001)
+        self.slippage_model = SimpleRandomSlippage(slippage_points=0.01, slippage_chance=0.5)
 
         # 初始化模拟经纪商
-        from qte.execution.basic_broker import FixedPercentageCommission, SimpleRandomSlippage
-        commission_model = FixedPercentageCommission(0.001)
-        slippage_model = SimpleRandomSlippage(0.01, 0.5)
-        self.broker = BasicBroker(self.event_loop, commission_model, slippage_model)
+        self.broker = BasicBroker(
+            event_loop=self.event_loop,
+            commission_model=self.commission_model,
+            slippage_model=self.slippage_model
+        )
     
     def test_order_creation(self):
         """测试订单创建"""
@@ -31,7 +36,7 @@ class TestOrderManagement(unittest.TestCase):
         order = OrderEvent(
             timestamp=datetime.now(),
             symbol='AAPL',
-            order_type='MARKET',
+            order_type=OrderType.MARKET,
             direction=OrderDirection.BUY,
             quantity=100,
             price=None
@@ -39,9 +44,9 @@ class TestOrderManagement(unittest.TestCase):
 
         # 验证订单属性
         self.assertEqual(order.symbol, 'AAPL')
-        self.assertEqual(order.direction, 1)  # OrderDirection.BUY的值是1
+        self.assertEqual(order.direction, OrderDirection.BUY.value)
         self.assertEqual(order.quantity, 100)
-        self.assertEqual(order.order_type, 'MARKET')
+        self.assertEqual(order.order_type, OrderType.MARKET.value)
     
     def test_limit_order(self):
         """测试限价单"""
@@ -52,7 +57,7 @@ class TestOrderManagement(unittest.TestCase):
         order = OrderEvent(
             timestamp=datetime.now(),
             symbol='AAPL',
-            order_type='LIMIT',
+            order_type=OrderType.LIMIT,
             direction=OrderDirection.SELL,
             quantity=50,
             price=150.0
@@ -60,9 +65,9 @@ class TestOrderManagement(unittest.TestCase):
 
         # 验证订单属性
         self.assertEqual(order.symbol, 'AAPL')
-        self.assertEqual(order.direction, -1)  # OrderDirection.SELL的值是-1
+        self.assertEqual(order.direction, OrderDirection.SELL.value)
         self.assertEqual(order.quantity, 50)
-        self.assertEqual(order.order_type, 'LIMIT')
+        self.assertEqual(order.order_type, OrderType.LIMIT.value)
         self.assertEqual(order.price, 150.0)
     
     def test_order_execution(self):
@@ -93,7 +98,7 @@ class TestOrderManagement(unittest.TestCase):
 
         # 验证成交事件属性
         self.assertEqual(fill.symbol, 'AAPL')
-        self.assertEqual(fill.direction, 1)  # OrderDirection.BUY的值是1
+        self.assertEqual(fill.direction, OrderDirection.BUY.value)
         self.assertEqual(fill.quantity, 100)
         self.assertEqual(fill.fill_price, 148.5)
         self.assertEqual(fill.commission, 1.5)

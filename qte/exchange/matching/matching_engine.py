@@ -61,7 +61,7 @@ class Order:
     symbol: str
     side: OrderSide
     order_type: OrderType
-    quantity: float
+    quantity: Decimal
     
     # 可选字段 (有默认值)
     order_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -104,6 +104,10 @@ class Order:
         if isinstance(self.status, str):
             self.status = OrderStatus[self.status.upper()]
 
+        # 确保quantity是Decimal类型
+        if not isinstance(self.quantity, Decimal):
+            self.quantity = Decimal(str(self.quantity))
+
         if self.update_time is None:
             self.update_time = self.timestamp
         if self.transact_time is None:
@@ -111,7 +115,7 @@ class Order:
 
         if not self.status_history:
             self.status_history.append({"status": self.status.value, "timestamp": self.timestamp})
-            
+
         if self.quote_order_qty is not None and self.orig_quote_order_qty is None:
             self.orig_quote_order_qty = self.quote_order_qty
 
@@ -230,7 +234,7 @@ class Order:
         self.executed_quantity += fill_qty
         
         # 更新状态
-        if self.executed_quantity >= Decimal(str(self.quantity)):
+        if self.executed_quantity >= self.quantity:
             self.status = OrderStatus.FILLED
         else:
             self.status = OrderStatus.PARTIALLY_FILLED
@@ -497,12 +501,12 @@ class OrderBook:
         # 获取买单深度
         for price in self.buy_prices[:levels]:
             quantity = sum(order.remaining_quantity for order in self.buy_orders[price])
-            bids.append([price, quantity])
-            
+            bids.append([price, float(quantity)])
+
         # 获取卖单深度
         for price in self.sell_prices[:levels]:
             quantity = sum(order.remaining_quantity for order in self.sell_orders[price])
-            asks.append([price, quantity])
+            asks.append([price, float(quantity)])
             
         return {'bids': bids, 'asks': asks}
             
@@ -884,6 +888,21 @@ class MatchingEngine:
             # 更新订单成交信息
             taker_order.add_fill(match_quantity, match_price_decimal, fill_timestamp, taker_commission, taker_commission_asset, False)  # taker不是maker
             maker_order.add_fill(match_quantity, match_price_decimal, fill_timestamp, maker_commission, maker_commission_asset, True)   # maker是maker
+
+            # 发送TRADE类型的订单更新通知
+            self._notify_order_update(taker_order, "TRADE")
+            self._notify_order_update(maker_order, "TRADE")
+
+            # 检查订单状态并发送相应的状态更新通知
+            if taker_order.status == OrderStatus.FILLED:
+                self._notify_order_update(taker_order, "FILLED")
+            elif taker_order.status == OrderStatus.PARTIALLY_FILLED:
+                self._notify_order_update(taker_order, "PARTIALLY_FILLED")
+
+            if maker_order.status == OrderStatus.FILLED:
+                self._notify_order_update(maker_order, "FILLED")
+            elif maker_order.status == OrderStatus.PARTIALLY_FILLED:
+                self._notify_order_update(maker_order, "PARTIALLY_FILLED")
             
             # 生成交易记录 - 为每个参与方创建单独的Trade对象
             # Taker方的交易记录
@@ -980,7 +999,7 @@ class MatchingEngine:
         # 倒序搜索，找到该交易对的最后一次成交
         for trade in reversed(self.trades):
             if trade.symbol == symbol:
-                return trade.price
+                return float(trade.price)
                 
         return None
 

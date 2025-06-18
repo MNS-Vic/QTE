@@ -67,7 +67,7 @@ class DataProcessor:
             raise ValueError("输入数据必须具有DatetimeIndex类型的索引")
         
         df = data.copy()
-        
+
         # 处理目标频率兼容性
         # 注意：在某些pandas版本中，'M'和'ME'的支持可能不同
         # 这里保持原始频率，让pandas自己处理
@@ -164,13 +164,13 @@ class DataProcessor:
         
         # 根据方法创建通用索引
         if method.lower() == 'outer':
-            # 修复：使用reduce方法逐个合并索引
+            # 修复：使用reduce方法逐个合并索引，移除sort=True参数
             from functools import reduce
-            common_index = reduce(lambda x, y: x.union(y, sort=True), all_indices)
+            common_index = reduce(lambda x, y: x.union(y), all_indices)
         elif method.lower() == 'inner':
-            # 修复：使用reduce方法逐个合并索引
+            # 修复：使用reduce方法逐个合并索引，移除sort=True参数
             from functools import reduce
-            common_index = reduce(lambda x, y: x.intersection(y, sort=True), all_indices)
+            common_index = reduce(lambda x, y: x.intersection(y), all_indices)
         else:
             raise ValueError(f"不支持的对齐方法: {method}. 支持的方法: 'outer', 'inner'")
         

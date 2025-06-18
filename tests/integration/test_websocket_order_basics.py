@@ -15,7 +15,7 @@ from qte.exchange.matching.matching_engine import (
 )
 from qte.exchange.account.account_manager import AccountManager
 from qte.exchange.websocket.websocket_server import ExchangeWebSocketServer
-from tests.integration.websocket_order_listener import WebSocketOrderListener
+from .websocket_order_listener import WebSocketOrderListener
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -41,7 +41,7 @@ class TestWebSocketOrderBasics:
         loop.close()
     
     @pytest_asyncio.fixture
-    async def setup_exchange(self):
+    async def setup_exchange(self, event_loop):
         """创建交易所环境"""
         # 创建撮合引擎
         matching_engine = MatchingEngine()

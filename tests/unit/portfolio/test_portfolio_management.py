@@ -6,6 +6,7 @@ from qte.portfolio.position import Position
 from qte.portfolio.base_portfolio import BasePortfolio
 from qte.portfolio.risk_manager import RiskManager
 from qte.core.events import FillEvent, OrderEvent, SignalEvent
+from qte.core.event_loop import EventLoop
 
 class TestPortfolioManagement(unittest.TestCase):
     """测试组合管理模块"""
@@ -14,18 +15,9 @@ class TestPortfolioManagement(unittest.TestCase):
         """设置测试环境"""
         # 初始化测试数据
         self.initial_capital = 100000.0
-
-        # 创建事件循环
-        from qte.core.event_loop import EventLoop
         self.event_loop = EventLoop()
-
-        # 创建投资组合
-        self.portfolio = BasePortfolio(
-            initial_capital=self.initial_capital,
-            event_loop=self.event_loop
-        )
-        # 创建风险管理器，需要传入投资组合实例
-        self.risk_manager = RiskManager(self.portfolio)
+        self.portfolio = BasePortfolio(initial_capital=self.initial_capital, event_loop=self.event_loop)
+        self.risk_manager = RiskManager(portfolio=self.portfolio)
         
         # 测试数据 - 价格序列
         dates = pd.date_range(start='2023-01-01', end='2023-01-10')
@@ -39,9 +31,7 @@ class TestPortfolioManagement(unittest.TestCase):
     def test_position_creation(self):
         """测试持仓创建"""
         # 创建一个新的持仓
-        position = Position(
-            symbol='AAPL'
-        )
+        position = Position(symbol='AAPL')
 
         # 验证持仓属性
         self.assertEqual(position.symbol, 'AAPL')
@@ -50,17 +40,15 @@ class TestPortfolioManagement(unittest.TestCase):
     
     def test_position_update(self):
         """测试持仓更新"""
-        # 创建持仓
-        position = Position(
-            symbol='AAPL'
-        )
+        # 创建持仓并更新
+        position = Position(symbol='AAPL')
 
         # 更新市场价格
         position.update_market_value(155.0, datetime.now())
 
         # 验证更新后的持仓
-        self.assertEqual(position.symbol, 'AAPL')
         self.assertEqual(position.last_price, 155.0)
+        self.assertEqual(position.market_value, 0.0)  # 因为quantity为0
     
     def test_portfolio_value_calculation(self):
         """测试投资组合价值计算"""

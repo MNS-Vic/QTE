@@ -392,11 +392,11 @@ class BasePortfolio(Portfolio):
         app_logger.info(f"初始资本: {self.initial_capital:,.2f}")
         app_logger.info(f"最终总权益: {final_snapshot['total_equity']:,.2f}")
         
-        total_pnl = final_snapshot['total_pnl']
+        total_pnl = final_snapshot['total_realized_pnl'] + final_snapshot['total_unrealized_pnl']
         return_pct = (total_pnl / self.initial_capital) * 100 if self.initial_capital != 0 else 0
         app_logger.info(f"总盈亏 (P&L): {total_pnl:,.2f} ({return_pct:.2f}%)")
-        app_logger.info(f"  已实现盈亏: {final_snapshot['realized_pnl']:,.2f}")
-        app_logger.info(f"  未实现盈亏: {final_snapshot['unrealized_pnl']:,.2f}")
+        app_logger.info(f"  已实现盈亏: {final_snapshot['total_realized_pnl']:,.2f}")
+        app_logger.info(f"  未实现盈亏: {final_snapshot['total_unrealized_pnl']:,.2f}")
         app_logger.info(f"总佣金支出: {final_snapshot['total_commission']:,.2f}")
         
         # TODO: 添加更多指标，如夏普比率、最大回撤、交易次数等。

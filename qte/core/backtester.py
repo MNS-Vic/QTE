@@ -21,7 +21,8 @@ from qte.portfolio.interfaces import Portfolio
 from qte.execution.interfaces import ExecutionHandler
 from qte.strategy.interfaces import Strategy
 from qte.data.csv_data_provider import CSVDataProvider # Example
-from qte.analysis.logger import app_logger
+import logging
+app_logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +114,8 @@ class BE_Backtester:
         
         while True:
             try:
-                # 使用带有超时的非阻塞get_event，以允许检查队列是否真的处理完毕
-                event = self.event_loop.get_event(block=True, timeout=0.01) # 短暂超时
+                # 获取下一个事件
+                event = self.event_loop.get_next_event()
                 
                 if event:
                     processed_event_count += 1
@@ -125,11 +126,11 @@ class BE_Backtester:
                     if processed_event_count % 100 == 0:
                         app_logger.debug(f"已处理 {processed_event_count} 个事件。当前事件: {type(event).__name__} for {getattr(event, 'symbol', 'N/A')} at {getattr(event, 'timestamp', 'N/A')}")
                     
-                    self.event_loop._dispatch_event(event) # 使用事件循环的内部调度逻辑
+                    self.event_loop.dispatch_event(event) # 使用事件循环的调度逻辑
                 else:
-                    # Timeout 发生，并且get_event返回None，检查队列是否真的为空
-                    if not self.event_loop.event_queue:
-                        app_logger.info("事件队列已空，并且在超时内无新事件，判断回测事件处理完毕。")
+                    # 没有更多事件，检查队列是否真的为空
+                    if len(self.event_loop) == 0:
+                        app_logger.info("事件队列已空，回测事件处理完毕。")
                         break
             except queue.Empty:
                 # 这个异常理论上不应该在 block=True 时发生，除非timeout非常短且队列恰好变空

@@ -14,7 +14,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol
 
 # 导入撮合引擎和账户管理器
-from qte.exchange.matching.matching_engine import MatchingEngine, Trade, Order
+from qte.exchange.matching.matching_engine import MatchingEngine, Trade, Order, OrderSide
 from qte.exchange.account.account_manager import AccountManager
 
 logger = logging.getLogger("WebSocketServer")
@@ -666,11 +666,11 @@ class ExchangeWebSocketServer:
                 "e": "trade",              # 事件类型
                 "E": int(time.time() * 1000),  # 事件时间
                 "s": trade.symbol,         # 交易对
-                "t": trade.trade_id,       # 交易ID
+                "t": trade.id,             # 交易ID
                 "p": str(trade.price),     # 价格
                 "q": str(trade.quantity),  # 数量
-                "b": trade.buy_order_id,   # 买方订单ID
-                "a": trade.sell_order_id,  # 卖方订单ID
+                "b": trade.order_id if trade.side == OrderSide.BUY else "",   # 买方订单ID
+                "a": trade.order_id if trade.side == OrderSide.SELL else "",  # 卖方订单ID
                 "T": int(trade.timestamp * 1000),  # 成交时间
                 "m": False                 # 买方是否为做市商
             }

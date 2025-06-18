@@ -1827,24 +1827,12 @@ class MultiSourceReplayController(BaseDataReplayController):
         # 检查是否有大型数据源并发出警告
         large_sources = [name for name, df in data_sources.items() if isinstance(df, pd.DataFrame) and len(df) > 100000]
         if large_sources:
-            logger.warning(f"检测到{len(large_sources)}个大型数据源: {", ".join(large_sources)}。这可能会影响性能，建议使用memory_optimized=True选项。")
+            large_sources_str = '", "'.join(large_sources)
+            logger.warning(f"检测到{len(large_sources)}个大型数据源: \"{large_sources_str}\"。这可能会影响性能，建议使用memory_optimized=True选项。")
             for name in large_sources:
                 df = data_sources[name]
                 logger.warning(f"大型数据源 {name}: {len(df)}行, {df.memory_usage(deep=True).sum() / (1024*1024):.2f} MB")
-        
-        # 记录内存优化模式
-        if memory_optimized:
-            total_rows = sum(len(df) for df in data_sources.values() if isinstance(df, pd.DataFrame))
-            logger.info(f"启用内存优化模式，数据源总行数: {total_rows}行")
-        
-        # 检查是否有大型数据源并发出警告
-        large_sources = [name for name, df in data_sources.items() if isinstance(df, pd.DataFrame) and len(df) > 100000]
-        if large_sources:
-            logger.warning(f"检测到{len(large_sources)}个大型数据源: {", ".join(large_sources)}。这可能会影响性能，建议使用memory_optimized=True选项。")
-            for name in large_sources:
-                df = data_sources[name]
-                logger.warning(f"大型数据源 {name}: {len(df)}行, {df.memory_usage(deep=True).sum() / (1024*1024):.2f} MB")
-        
+
         # 记录内存优化模式
         if memory_optimized:
             total_rows = sum(len(df) for df in data_sources.values() if isinstance(df, pd.DataFrame))
