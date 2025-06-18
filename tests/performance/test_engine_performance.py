@@ -6,7 +6,7 @@ import os
 import tempfile
 from qte.core.vector_engine import VectorEngine
 from qte.data.data_processor import DataProcessor
-from qte.strategy.example_strategies import SimpleMovingAverageStrategy
+from qte.strategy.example_strategies import MovingAverageCrossStrategy
 
 class TestEnginePerformance(unittest.TestCase):
     """测试引擎性能"""
@@ -23,7 +23,19 @@ class TestEnginePerformance(unittest.TestCase):
         self.engine = VectorEngine()
         
         # 初始化简单策略
-        self.strategy = SimpleMovingAverageStrategy(short_window=5, long_window=20)
+        # 创建模拟的事件循环和数据提供者
+        from unittest.mock import Mock
+        mock_event_loop = Mock()
+        mock_data_provider = Mock()
+        symbols = ['AAPL', 'GOOGL']
+
+        self.strategy = MovingAverageCrossStrategy(
+            event_loop=mock_event_loop,
+            data_provider=mock_data_provider,
+            symbols=symbols,
+            short_window=5,
+            long_window=20
+        )
         
         # 性能测试结果记录
         self.performance_results = {}

@@ -42,7 +42,7 @@ class TestWebSocketSecurity:
         loop.close()
     
     @pytest.fixture
-    async def setup_exchange(self):
+    def setup_exchange(self):
         """创建交易所环境"""
         # 创建撮合引擎
         matching_engine = MatchingEngine()
@@ -83,7 +83,6 @@ class TestWebSocketSecurity:
         
         # 测试完成后清理资源
         logger.info("清理测试资源...")
-        await asyncio.sleep(0.2)
     
     @pytest.mark.asyncio
     async def test_api_key_validation(self, setup_exchange):
