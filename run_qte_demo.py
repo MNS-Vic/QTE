@@ -114,16 +114,29 @@ def run_advanced_demo(config_file=None):
     logger.info("📊 高级演示完成")
     return results
 
+def run_exchange_demo():
+    """运行虚拟交易所演示模式"""
+    logger = logging.getLogger('QTE_DEMO')
+    logger.info("🏛️ 启动虚拟交易所演示模式...")
+
+    from demo.virtual_exchange_demo import VirtualExchangeDemo
+
+    demo = VirtualExchangeDemo()
+    results = demo.run_demo()
+
+    logger.info("🏛️ 虚拟交易所演示完成")
+    return results
+
 def run_test_mode():
     """运行测试模式"""
     logger = logging.getLogger('QTE_DEMO')
     logger.info("🧪 启动测试模式...")
-    
+
     from demo.demo_test_suite import DemoTestSuite
-    
+
     test_suite = DemoTestSuite()
     results = test_suite.run_all_tests()
-    
+
     logger.info("🧪 测试模式完成")
     return results
 
@@ -152,18 +165,20 @@ def main():
 演示模式说明:
   simple    - 简单演示模式，展示基本功能
   advanced  - 高级演示模式，展示完整功能
+  exchange  - 虚拟交易所演示，展示完整的交易所功能
   test      - 测试模式，验证系统功能
 
 示例:
   python run_qte_demo.py --mode simple
   python run_qte_demo.py --mode advanced --config demo_config.yaml
+  python run_qte_demo.py --mode exchange --verbose
   python run_qte_demo.py --mode test --verbose
         """
     )
     
     parser.add_argument(
-        '--mode', 
-        choices=['simple', 'advanced', 'test'],
+        '--mode',
+        choices=['simple', 'advanced', 'exchange', 'test'],
         default='simple',
         help='演示模式 (默认: simple)'
     )
@@ -215,6 +230,8 @@ def main():
             results = run_simple_demo()
         elif args.mode == 'advanced':
             results = run_advanced_demo(args.config)
+        elif args.mode == 'exchange':
+            results = run_exchange_demo()
         elif args.mode == 'test':
             results = run_test_mode()
         
