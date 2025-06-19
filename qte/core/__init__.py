@@ -2,6 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 QTE核心模块 - 提供向量化和事件驱动回测引擎
+
+V1架构 (原始架构，向后兼容):
+- 直接依赖的引擎实现
+- 紧耦合的组件设计
+
+V2架构 (重构后的解耦架构):
+- 基于接口的解耦设计
+- 插件化引擎架构
+- 统一的事件处理系统
+- 依赖注入和服务发现
 """
 
 # 从各子模块按需导出真正需要作为 qte.core.xxx 形式访问的API
@@ -26,19 +36,71 @@ from .vector_engine import VectorEngine
 from .engine_manager import BaseEngineManager, ReplayEngineManager, EngineType, EngineStatus
 from .engine_manager import EngineEvent, MarketDataEvent  # 添加对EngineEvent和MarketDataEvent的导出
 
-print(f"DEBUG: qte.core.__init__.py CLEAN VERSION executed")
+# V2架构 - 接口和实现 (可选导入，避免破坏现有代码)
+try:
+    # 接口定义
+    from .interfaces import (
+        IBacktestEngine,
+        IEngineManager,
+        IEventBus,
+        IEventHandler,
+        EngineCapability,
+        EngineMetrics,
+        BacktestResult
+    )
 
+    # 引擎实现
+    from .engines import (
+        VectorEngineV2,
+        EngineRegistry
+    )
+
+    # 管理器实现
+    from .managers import (
+        EngineManagerV2,
+        EventManagerV2
+    )
+
+    # V2架构可用标志
+    _V2_AVAILABLE = True
+
+except ImportError as e:
+    # V2架构不可用，只使用V1架构
+    _V2_AVAILABLE = False
+    print(f"INFO: V2架构不可用，使用V1架构: {e}")
+
+print(f"DEBUG: qte.core.__init__.py CLEAN VERSION executed, V2架构可用: {_V2_AVAILABLE}")
+
+# 构建__all__列表
 __all__ = [
-    # 来自 events.py
+    # V1架构 - 来自 events.py
     'Event', 'EventType', 'MarketEvent', 'SignalEvent', 'OrderEvent', 'FillEvent', 'OrderDirection', 'OrderType',
-    # 来自 event_loop.py
+    # V1架构 - 来自 event_loop.py
     'EventLoop',
-    # 来自 event_engine.py
+    # V1架构 - 来自 event_engine.py
     'EventDrivenBacktester', 'EventEngine',
-    # 'AccountEvent', # 如果导出
-    # 来自 vector_engine.py
+    # V1架构 - 来自 vector_engine.py
     'VectorEngine',
-    # 来自 engine_manager.py
+    # V1架构 - 来自 engine_manager.py
     'BaseEngineManager', 'ReplayEngineManager', 'EngineType', 'EngineStatus',
-    'EngineEvent', 'MarketDataEvent',  # 添加到__all__中
+    'EngineEvent', 'MarketDataEvent',
 ]
+
+# 如果V2架构可用，添加到__all__中
+if _V2_AVAILABLE:
+    __all__.extend([
+        # V2架构 - 接口
+        'IBacktestEngine',
+        'IEngineManager',
+        'IEventBus',
+        'IEventHandler',
+        'EngineCapability',
+        'EngineMetrics',
+        'BacktestResult',
+
+        # V2架构 - 实现
+        'VectorEngineV2',
+        'EngineRegistry',
+        'EngineManagerV2',
+        'EventManagerV2'
+    ])
