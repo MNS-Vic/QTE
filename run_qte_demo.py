@@ -140,6 +140,19 @@ def run_ml_demo():
     logger.info("🤖 机器学习演示完成")
     return results
 
+def run_vnpy_demo():
+    """运行vnpy集成演示模式"""
+    logger = logging.getLogger('QTE_DEMO')
+    logger.info("🔗 启动vnpy集成演示模式...")
+
+    from demo.vnpy_integration_demo import VnpyIntegrationDemo
+
+    demo = VnpyIntegrationDemo()
+    results = demo.run_demo()
+
+    logger.info("🔗 vnpy集成演示完成")
+    return results
+
 def run_test_mode():
     """运行测试模式"""
     logger = logging.getLogger('QTE_DEMO')
@@ -180,6 +193,7 @@ def main():
   advanced  - 高级演示模式，展示完整功能
   exchange  - 虚拟交易所演示，展示完整的交易所功能
   ml        - 机器学习演示，展示ML特征工程和模型训练
+  vnpy      - vnpy集成演示，展示QTE与vnpy的完整集成
   test      - 测试模式，验证系统功能
 
 示例:
@@ -187,13 +201,14 @@ def main():
   python run_qte_demo.py --mode advanced --config demo_config.yaml
   python run_qte_demo.py --mode exchange --verbose
   python run_qte_demo.py --mode ml --verbose
+  python run_qte_demo.py --mode vnpy --verbose
   python run_qte_demo.py --mode test --verbose
         """
     )
     
     parser.add_argument(
         '--mode',
-        choices=['simple', 'advanced', 'exchange', 'ml', 'test'],
+        choices=['simple', 'advanced', 'exchange', 'ml', 'vnpy', 'test'],
         default='simple',
         help='演示模式 (默认: simple)'
     )
@@ -249,6 +264,8 @@ def main():
             results = run_exchange_demo()
         elif args.mode == 'ml':
             results = run_ml_demo()
+        elif args.mode == 'vnpy':
+            results = run_vnpy_demo()
         elif args.mode == 'test':
             results = run_test_mode()
         
