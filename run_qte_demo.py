@@ -205,6 +205,104 @@ def run_test_mode():
     logger.info("🧪 测试模式完成")
     return results
 
+def run_demo_with_new_architecture(mode: str, config: dict, output_dir: str) -> dict:
+    """
+    使用新架构运行演示
+
+    Args:
+        mode: 演示模式
+        config: 配置字典
+        output_dir: 输出目录
+
+    Returns:
+        演示结果字典
+    """
+    logger = logging.getLogger('NewArchitecture')
+    logger.info(f"🏗️ 使用新架构运行演示: {mode}")
+
+    try:
+        from demo.factory import DemoFactory
+
+        # 映射演示模式到新架构类型
+        mode_mapping = {
+            'simple': 'simple_v2',
+            'test': 'simple_v2'  # 测试模式暂时使用简单演示
+        }
+
+        demo_type = mode_mapping.get(mode)
+        if not demo_type:
+            logger.warning(f"⚠️ 模式 {mode} 暂不支持新架构，回退到原始架构")
+            return run_demo_with_legacy_architecture(mode, config)
+
+        # 检查演示类型是否可用
+        available_demos = DemoFactory.list_available_demos()
+        if demo_type not in available_demos:
+            logger.warning(f"⚠️ 演示类型 {demo_type} 未实现，回退到原始架构")
+            return run_demo_with_legacy_architecture(mode, config)
+
+        # 运行新架构演示
+        result = DemoFactory.run_demo(
+            demo_type=demo_type,
+            config=config,
+            demo_name=mode,
+            output_dir=output_dir
+        )
+
+        # 转换结果格式以保持兼容性
+        return {
+            'status': result.status.value,
+            'execution_time': result.execution_time,
+            'metrics': result.metrics,
+            'outputs': result.outputs,
+            'errors': result.errors,
+            'warnings': result.warnings,
+            'architecture': 'v2'
+        }
+
+    except Exception as e:
+        logger.error(f"❌ 新架构演示运行失败: {e}")
+        logger.info("🔄 回退到原始架构")
+        return run_demo_with_legacy_architecture(mode, config)
+
+
+def run_demo_with_legacy_architecture(mode: str, config: dict) -> dict:
+    """
+    使用原始架构运行演示 (向后兼容)
+
+    Args:
+        mode: 演示模式
+        config: 配置字典
+
+    Returns:
+        演示结果字典
+    """
+    logger = logging.getLogger('LegacyArchitecture')
+    logger.info(f"🔄 使用原始架构运行演示: {mode}")
+
+    # 调用原始的演示函数
+    if mode == 'simple':
+        return run_simple_demo()
+    elif mode == 'advanced':
+        return run_advanced_demo(config.get('config_file'))
+    elif mode == 'exchange':
+        return run_exchange_demo()
+    elif mode == 'ml':
+        return run_ml_demo()
+    elif mode == 'vnpy':
+        return run_vnpy_demo()
+    elif mode == 'report':
+        return run_report_demo()
+    elif mode == 'datasource':
+        return run_datasource_demo()
+    elif mode == 'all':
+        return run_comprehensive_demo()
+    elif mode == 'test':
+        return run_test_mode()
+    else:
+        logger.error(f"❌ 未知的演示模式: {mode}")
+        return {'error': f'未知的演示模式: {mode}'}
+
+
 def print_banner():
     """打印启动横幅"""
     banner = """
@@ -261,7 +359,7 @@ def main():
     parser.add_argument(
         '--config',
         type=str,
-        help='配置文件路径 (仅用于advanced模式)'
+        help='配置文件路径 (默认: demo_config/demo_config.yaml)'
     )
     
     parser.add_argument(
@@ -276,6 +374,13 @@ def main():
         default='demo_output',
         help='输出目录 (默认: demo_output)'
     )
+
+    parser.add_argument(
+        '--architecture',
+        choices=['v1', 'v2'],
+        default='v2',
+        help='选择架构版本 (v1: 原始架构, v2: 新架构, 默认: v2)'
+    )
     
     args = parser.parse_args()
     
@@ -285,40 +390,64 @@ def main():
     
     logger.info("🎬 QTE演示系统启动")
     logger.info(f"📋 运行模式: {args.mode}")
-    
+
+    # 初始化配置管理器
+    try:
+        from demo.config_manager import get_config_manager
+        config_manager = get_config_manager(args.config)
+
+        if args.config:
+            logger.info(f"📄 配置文件: {args.config}")
+        else:
+            logger.info(f"📄 使用默认配置: {config_manager.config_path}")
+
+        # 获取演示模式配置
+        demo_config = config_manager.get_demo_config(args.mode)
+        logger.info(f"⚙️ 配置加载完成，初始资金: ${demo_config.get('initial_capital', 100000):,.2f}")
+
+    except Exception as e:
+        logger.warning(f"⚠️ 配置管理器初始化失败: {e}")
+        logger.info("🔄 使用默认配置继续运行")
+        demo_config = {}
+
     # 检查依赖
     if not check_dependencies():
         logger.error("❌ 依赖检查失败，请检查环境配置")
         sys.exit(1)
-    
+
     # 创建目录
     create_demo_directories()
-    
+
     # 设置输出目录
     os.environ['QTE_DEMO_OUTPUT_DIR'] = args.output_dir
     
     try:
         start_time = time.time()
         
-        # 根据模式运行演示
-        if args.mode == 'simple':
-            results = run_simple_demo()
-        elif args.mode == 'advanced':
-            results = run_advanced_demo(args.config)
-        elif args.mode == 'exchange':
-            results = run_exchange_demo()
-        elif args.mode == 'ml':
-            results = run_ml_demo()
-        elif args.mode == 'vnpy':
-            results = run_vnpy_demo()
-        elif args.mode == 'report':
-            results = run_report_demo()
-        elif args.mode == 'datasource':
-            results = run_datasource_demo()
-        elif args.mode == 'all':
-            results = run_comprehensive_demo()
-        elif args.mode == 'test':
-            results = run_test_mode()
+        # 根据架构版本和模式运行演示
+        if args.architecture == 'v2':
+            # 使用新架构
+            results = run_demo_with_new_architecture(args.mode, demo_config, args.output_dir)
+        else:
+            # 使用原始架构 (向后兼容)
+            if args.mode == 'simple':
+                results = run_simple_demo()
+            elif args.mode == 'advanced':
+                results = run_advanced_demo(args.config)
+            elif args.mode == 'exchange':
+                results = run_exchange_demo()
+            elif args.mode == 'ml':
+                results = run_ml_demo()
+            elif args.mode == 'vnpy':
+                results = run_vnpy_demo()
+            elif args.mode == 'report':
+                results = run_report_demo()
+            elif args.mode == 'datasource':
+                results = run_datasource_demo()
+            elif args.mode == 'all':
+                results = run_comprehensive_demo()
+            elif args.mode == 'test':
+                results = run_test_mode()
         
         end_time = time.time()
         duration = end_time - start_time
