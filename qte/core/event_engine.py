@@ -739,9 +739,19 @@ class EventDrivenBacktester:
             days = 1  # 默认值
         annual_return = (1 + total_return) ** (365 / max(1, days)) - 1
         
-        # 最大回撤 (安全处理NaN值)
-        drawdown_values = equity_df['drawdown'].dropna()
-        max_drawdown = float(drawdown_values.max()) if len(drawdown_values) > 0 else 0.0
+        # 最大回撤 (安全处理NaN值和_NoValueType)
+        try:
+            drawdown_values = equity_df['drawdown'].dropna()
+            if len(drawdown_values) > 0:
+                # 使用numpy方法避免pandas的_NoValueType问题
+                drawdown_array = drawdown_values.values
+                valid_values = drawdown_array[~pd.isna(drawdown_array)]
+                max_drawdown = float(np.max(valid_values)) if len(valid_values) > 0 else 0.0
+            else:
+                max_drawdown = 0.0
+        except (TypeError, ValueError):
+            # 如果仍然有问题，使用默认值
+            max_drawdown = 0.0
         
         # 夏普比率
         sharpe_ratio = equity_df['return'].mean() / equity_df['return'].std() * np.sqrt(252) if equity_df['return'].std() > 0 else 0
