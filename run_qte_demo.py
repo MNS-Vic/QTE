@@ -179,6 +179,19 @@ def run_datasource_demo():
     logger.info("🗄️ 数据源生态系统演示完成")
     return results
 
+def run_comprehensive_demo():
+    """运行综合演示模式"""
+    logger = logging.getLogger('QTE_DEMO')
+    logger.info("🎯 启动综合演示模式...")
+
+    from demo.comprehensive_demo import ComprehensiveDemo
+
+    demo = ComprehensiveDemo()
+    results = demo.run_demo()
+
+    logger.info("🎯 综合演示完成")
+    return results
+
 def run_test_mode():
     """运行测试模式"""
     logger = logging.getLogger('QTE_DEMO')
@@ -222,6 +235,7 @@ def main():
   vnpy       - vnpy集成演示，展示QTE与vnpy的完整集成
   report     - 可视化报告演示，展示HTML报告和图表生成
   datasource - 数据源生态系统演示，展示多数据源管理和性能对比
+  all        - 综合演示模式，依次运行所有演示并生成综合报告
   test       - 测试模式，验证系统功能
 
 示例:
@@ -232,13 +246,14 @@ def main():
   python run_qte_demo.py --mode vnpy --verbose
   python run_qte_demo.py --mode report --verbose
   python run_qte_demo.py --mode datasource --verbose
+  python run_qte_demo.py --mode all --verbose
   python run_qte_demo.py --mode test --verbose
         """
     )
     
     parser.add_argument(
         '--mode',
-        choices=['simple', 'advanced', 'exchange', 'ml', 'vnpy', 'report', 'datasource', 'test'],
+        choices=['simple', 'advanced', 'exchange', 'ml', 'vnpy', 'report', 'datasource', 'all', 'test'],
         default='simple',
         help='演示模式 (默认: simple)'
     )
@@ -300,6 +315,8 @@ def main():
             results = run_report_demo()
         elif args.mode == 'datasource':
             results = run_datasource_demo()
+        elif args.mode == 'all':
+            results = run_comprehensive_demo()
         elif args.mode == 'test':
             results = run_test_mode()
         
