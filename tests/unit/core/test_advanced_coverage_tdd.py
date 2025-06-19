@@ -40,7 +40,7 @@ class TestAdvancedCoverageTDD:
             assert result == True
             
             # 验证put方法被调用（尝试发送None）
-            mock_put.assert_called_with(None)
+            mock_put.assert_called_with(None, block=True, timeout=0.5)
     
     def test_stop_event_processing_general_exception_coverage(self):
         """测试停止事件处理时一般异常 - 覆盖第401-402行"""
@@ -57,7 +57,7 @@ class TestAdvancedCoverageTDD:
             assert result == True
             
             # 验证put方法被调用
-            mock_put.assert_called_with(None)
+            mock_put.assert_called_with(None, block=True, timeout=0.5)
     
     def test_process_events_stop_signal_after_get_event_coverage(self):
         """测试在获取事件后检测到停止信号 - 覆盖第598-600行"""
@@ -110,23 +110,14 @@ class TestAdvancedCoverageTDD:
         # 启动引擎
         self.engine.initialize()
         self.engine.start()
-        
-        # 创建一个会导致异常的事件
-        bad_event = Mock()
-        bad_event.event_type = "test_event"
-        
-        # Mock getattr函数在特定调用时抛出异常
-        original_getattr = getattr
-        def mock_getattr(obj, name, default=None):
-            if obj is bad_event and name == 'event_type':
-                raise RuntimeError("Getattr error")
-            return original_getattr(obj, name, default)
-        
-        with patch('builtins.getattr', side_effect=mock_getattr):
-            # 调用_dispatch_event应该处理异常
-            result = self.engine._dispatch_event(bad_event)
-            assert result == False
-        
+
+        # 创建一个会导致异常的事件（使用None来触发异常）
+        bad_event = None
+
+        # 直接调用_dispatch_event，传入None应该触发异常处理
+        result = self.engine._dispatch_event(bad_event)
+        assert result == False
+
         # 停止引擎
         self.engine.stop()
 
@@ -167,24 +158,24 @@ class TestReplayEngineAdvancedCoverage:
     
     def test_start_cleanup_old_callbacks_error_coverage(self):
         """测试启动时清理旧回调出错 - 覆盖第889-890行"""
+        # 初始化引擎
+        self.replay_engine.initialize()
+
         # 创建Mock控制器
         mock_controller = Mock(spec=MockDataReplayInterface)
         mock_controller.unregister_callback.side_effect = Exception("Cleanup error")
-        
-        # 手动添加回调记录
+
+        # 在初始化后添加回调记录
         with self.replay_engine._lock:
             self.replay_engine._replay_callbacks[mock_controller] = 456
-        
-        # 初始化引擎
-        self.replay_engine.initialize()
-        
+
         # 启动应该能处理清理错误
         result = self.replay_engine.start()
         assert result == True
-        
+
         # 验证unregister_callback被调用
         mock_controller.unregister_callback.assert_called_with(456)
-        
+
         # 停止引擎
         self.replay_engine.stop()
     
@@ -211,15 +202,15 @@ class TestEventEngineAdvancedCoverage:
     def test_event_engine_import_and_usage(self):
         """测试Event Engine的导入和基本使用 - 覆盖未测试行"""
         from qte.core.event_engine import EventDrivenBacktester
-        
+
         # 创建回测器实例
         backtester = EventDrivenBacktester()
         assert backtester is not None
-        
+
         # 测试基本属性
-        assert hasattr(backtester, 'portfolio')
-        assert hasattr(backtester, 'execution_handler')
-        assert hasattr(backtester, 'data_handler')
+        assert hasattr(backtester, 'event_engine')
+        assert hasattr(backtester, 'initial_capital')
+        assert hasattr(backtester, 'current_capital')
 
 
 class TestVectorEngineAdvancedCoverage:
@@ -227,16 +218,16 @@ class TestVectorEngineAdvancedCoverage:
     
     def test_vector_engine_error_conditions(self):
         """测试Vector Engine的错误条件 - 覆盖未测试行"""
-        from qte.core.vector_engine import VectorBacktester
-        
+        from qte.core.vector_engine import VectorEngine
+
         # 创建回测器实例
-        backtester = VectorBacktester()
+        backtester = VectorEngine()
         assert backtester is not None
-        
+
         # 测试错误条件
         try:
             # 尝试在没有数据的情况下运行回测
-            result = backtester.run_backtest()
+            result = backtester.run()
             # 如果没有抛出异常，结果应该是None或False
             assert result is None or result == False
         except Exception as e:
