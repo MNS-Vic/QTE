@@ -186,8 +186,10 @@ class VectorEngine:
         # 年化收益率
         annual_return = (1 + total_return) ** annual_factor - 1
         
-        # 最大回撤
-        max_drawdown = results['drawdown'].max()
+        # 最大回撤 (使用numpy处理NaN值)
+        drawdown_values = results['drawdown'].values
+        valid_drawdown = drawdown_values[~np.isnan(drawdown_values)]
+        max_drawdown = float(np.max(valid_drawdown)) if len(valid_drawdown) > 0 else 0.0
         
         # 夏普比率 (假设无风险利率为0)
         daily_returns = results['strategy_returns']
@@ -197,17 +199,34 @@ class VectorEngine:
         negative_returns = daily_returns[daily_returns < 0]
         sortino_ratio = daily_returns.mean() / negative_returns.std() * np.sqrt(annual_factor) if len(negative_returns) > 0 and negative_returns.std() > 0 else 0
         
-        # 交易次数
-        trade_count = (results['trade'] != 0).sum()
-        
-        # 胜率
-        winning_trades = (results[results['trade'] != 0]['strategy_returns'] > 0).sum()
-        win_rate = winning_trades / trade_count if trade_count > 0 else 0
-        
-        # 盈亏比
-        avg_win = results['strategy_returns'][results['strategy_returns'] > 0].mean() if len(results['strategy_returns'][results['strategy_returns'] > 0]) > 0 else 0
-        avg_loss = results['strategy_returns'][results['strategy_returns'] < 0].mean() if len(results['strategy_returns'][results['strategy_returns'] < 0]) > 0 else 0
-        win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float('inf')
+        # 交易次数 (安全计算)
+        trade_mask = results['trade'] != 0
+        trade_count = int(trade_mask.sum()) if 'trade' in results.columns else 0
+
+        # 胜率 (安全计算)
+        if trade_count > 0 and 'strategy_returns' in results.columns:
+            # 获取有交易的行
+            trade_indices = results.index[trade_mask].tolist()
+            if len(trade_indices) > 0:
+                trade_returns = results.loc[trade_indices, 'strategy_returns']
+                winning_trades = int((trade_returns > 0).sum())
+                win_rate = winning_trades / trade_count
+            else:
+                win_rate = 0.0
+        else:
+            win_rate = 0.0
+
+        # 盈亏比 (安全计算)
+        if 'strategy_returns' in results.columns:
+            strategy_returns = results['strategy_returns'].dropna()
+            positive_returns = strategy_returns[strategy_returns > 0]
+            negative_returns = strategy_returns[strategy_returns < 0]
+
+            avg_win = float(positive_returns.mean()) if len(positive_returns) > 0 else 0.0
+            avg_loss = float(negative_returns.mean()) if len(negative_returns) > 0 else 0.0
+            win_loss_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else float('inf')
+        else:
+            win_loss_ratio = 0.0
         
         # 收益风险比
         return_risk_ratio = annual_return / max_drawdown if max_drawdown > 0 else float('inf')

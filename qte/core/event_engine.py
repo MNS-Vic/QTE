@@ -675,15 +675,41 @@ class EventDrivenBacktester:
     def _calculate_results(self) -> Dict[str, Any]:
         """
         计算回测结果
-        
+
         Returns
         -------
         Dict[str, Any]
             回测结果统计
         """
+        # 处理空权益历史的情况
+        if not self.equity_history:
+            # 如果没有权益历史，创建一个基本的记录
+            import datetime as dt
+            self.equity_history = [
+                {'timestamp': dt.datetime.now(), 'equity': self.current_capital}
+            ]
+
         # 转换成DataFrame便于分析
         equity_df = pd.DataFrame(self.equity_history)
-        equity_df.set_index('timestamp', inplace=True)
+
+        # 检查DataFrame是否为空或缺少必要列
+        if equity_df.empty or 'timestamp' not in equity_df.columns or 'equity' not in equity_df.columns:
+            # 创建默认的权益曲线
+            import datetime as dt
+            equity_df = pd.DataFrame({
+                'timestamp': [dt.datetime.now()],
+                'equity': [self.current_capital]
+            })
+
+        # 使用更兼容的方式设置索引，避免pandas版本兼容性问题
+        try:
+            equity_df = equity_df.set_index('timestamp')
+        except Exception as e:
+            # 如果设置索引失败，使用默认的数字索引
+            print(f"Warning: Failed to set timestamp index: {e}")
+            # 确保至少有timestamp列用于后续计算
+            if 'timestamp' in equity_df.columns:
+                equity_df['timestamp_backup'] = equity_df['timestamp']
         
         # 计算收益率
         equity_df['return'] = equity_df['equity'].pct_change()
@@ -700,11 +726,22 @@ class EventDrivenBacktester:
         total_return = equity_df['equity'].iloc[-1] / self.initial_capital - 1
         
         # 年化收益率
-        days = (equity_df.index[-1] - equity_df.index[0]).days
+        try:
+            if hasattr(equity_df.index, 'dtype') and 'datetime' in str(equity_df.index.dtype):
+                days = (equity_df.index[-1] - equity_df.index[0]).days
+            else:
+                # 如果索引不是datetime，使用备份的timestamp列
+                if 'timestamp_backup' in equity_df.columns:
+                    days = (equity_df['timestamp_backup'].iloc[-1] - equity_df['timestamp_backup'].iloc[0]).days
+                else:
+                    days = 1  # 默认值
+        except Exception:
+            days = 1  # 默认值
         annual_return = (1 + total_return) ** (365 / max(1, days)) - 1
         
-        # 最大回撤
-        max_drawdown = equity_df['drawdown'].max()
+        # 最大回撤 (安全处理NaN值)
+        drawdown_values = equity_df['drawdown'].dropna()
+        max_drawdown = float(drawdown_values.max()) if len(drawdown_values) > 0 else 0.0
         
         # 夏普比率
         sharpe_ratio = equity_df['return'].mean() / equity_df['return'].std() * np.sqrt(252) if equity_df['return'].std() > 0 else 0
@@ -836,7 +873,7 @@ class EventDrivenBacktester:
         win_rate = winning_trades_count / len(trade_profits) if trade_profits else 0.0
         avg_win = total_profit / winning_trades_count if winning_trades_count > 0 else 0.0
         avg_loss = abs(total_loss / losing_trades_count) if losing_trades_count > 0 else 0.0
-        avg_profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else float('inf')
+        avg_profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 999999.0  # 使用大数值代替inf
 
         return {
             'trade_count': len(trade_profits), # 完成的交易对数量
