@@ -251,7 +251,11 @@ class VisualizationReportDemo:
                 title='各演示模式交易数量对比',
                 xaxis_title='演示模式',
                 yaxis_title='交易数量',
-                template='plotly_white'
+                template='plotly_dark',
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e0e0e0'),
+                title_font=dict(size=18, color='#f7fafc')
             )
             
             charts['trades_comparison'] = fig_trades
@@ -278,7 +282,11 @@ class VisualizationReportDemo:
                         title='ML策略累计收益率曲线',
                         xaxis_title='日期',
                         yaxis_title='累计收益率 (%)',
-                        template='plotly_white'
+                        template='plotly_dark',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='#e0e0e0'),
+                        title_font=dict(size=18, color='#f7fafc')
                     )
                     
                     charts['ml_returns'] = fig_returns
@@ -321,10 +329,23 @@ class VisualizationReportDemo:
                 polar=dict(
                     radialaxis=dict(
                         visible=True,
-                        range=[0, 5]
-                    )),
+                        range=[0, 5],
+                        gridcolor='rgba(255,255,255,0.2)',
+                        linecolor='rgba(255,255,255,0.3)'
+                    ),
+                    angularaxis=dict(
+                        gridcolor='rgba(255,255,255,0.2)',
+                        linecolor='rgba(255,255,255,0.3)'
+                    ),
+                    bgcolor='rgba(0,0,0,0)'
+                ),
                 showlegend=True,
-                title='QTE演示系统功能覆盖分析'
+                title='QTE演示系统功能覆盖分析',
+                template='plotly_dark',
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e0e0e0'),
+                title_font=dict(size=18, color='#f7fafc')
             )
             
             charts['functionality_radar'] = fig_radar
@@ -342,7 +363,7 @@ class VisualizationReportDemo:
         self.logger.info("📋 生成HTML可视化报告...")
         
         try:
-            # HTML模板
+            # HTML模板 - 专业深色版
             html_template = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -351,79 +372,223 @@ class VisualizationReportDemo:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QTE量化交易引擎 - 演示系统分析报告</title>
     <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            min-height: 100vh;
             padding: 20px;
-            background-color: #f5f5f5;
         }}
+
         .container {{
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: linear-gradient(145deg, #1e1e1e 0%, #2a2a2a 100%);
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05);
+            overflow: hidden;
         }}
+
         .header {{
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 50%, #2b6cb0 100%);
+            padding: 40px;
             text-align: center;
-            margin-bottom: 40px;
-            padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
         }}
+
+        .header::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/></pattern></defs><rect width="100" height="100" fill="url(%23grid)"/></svg>');
+            opacity: 0.5;
+        }}
+
+        .header-content {{
+            position: relative;
+            z-index: 1;
+        }}
+
         .header h1 {{
-            margin: 0;
-            font-size: 2.5em;
+            font-size: 3.2em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #ffffff 0%, #a0aec0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            letter-spacing: -0.02em;
         }}
-        .header p {{
-            margin: 10px 0 0 0;
-            font-size: 1.2em;
-            opacity: 0.9;
+
+        .header .subtitle {{
+            font-size: 1.3em;
+            color: #cbd5e0;
+            font-weight: 300;
+            margin-bottom: 8px;
         }}
+
+        .header .timestamp {{
+            font-size: 1em;
+            color: #a0aec0;
+            font-weight: 400;
+        }}
+
+        .main-content {{
+            padding: 40px;
+        }}
+
         .metrics-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 50px;
         }}
+
         .metric-card {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #667eea;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background: linear-gradient(145deg, #2d3748 0%, #4a5568 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 28px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
         }}
+
+        .metric-card::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, #4299e1 0%, #3182ce 100%);
+        }}
+
+        .metric-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.2);
+        }}
+
         .metric-card h3 {{
-            margin: 0 0 10px 0;
-            color: #333;
+            font-size: 0.95em;
+            color: #a0aec0;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 12px;
         }}
+
         .metric-value {{
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
+            font-size: 2.8em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4299e1 0%, #63b3ed 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            line-height: 1;
         }}
+
+        .metric-description {{
+            font-size: 0.9em;
+            color: #cbd5e0;
+            font-weight: 400;
+        }}
+
         .chart-container {{
-            margin: 30px 0;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background: linear-gradient(145deg, #2d3748 0%, #4a5568 100%);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 32px;
+            margin: 32px 0;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
         }}
+
         .chart-title {{
-            font-size: 1.5em;
-            margin-bottom: 20px;
-            color: #333;
+            font-size: 1.6em;
+            font-weight: 600;
+            color: #f7fafc;
             text-align: center;
+            margin-bottom: 28px;
+            position: relative;
         }}
-        .footer {{
-            text-align: center;
-            margin-top: 40px;
-            padding: 20px;
-            background-color: #f8f9fa;
+
+        .chart-title::after {{
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 2px;
+            background: linear-gradient(90deg, #4299e1 0%, #63b3ed 100%);
+            border-radius: 1px;
+        }}
+
+        .chart-item {{
+            margin: 24px 0;
             border-radius: 8px;
-            color: #666;
+            overflow: hidden;
+        }}
+
+        .footer {{
+            background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+            padding: 32px 40px;
+            text-align: center;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }}
+
+        .footer-stats {{
+            font-size: 1.1em;
+            color: #e2e8f0;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }}
+
+        .footer-description {{
+            font-size: 0.95em;
+            color: #a0aec0;
+            font-weight: 400;
+        }}
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {{
+            .container {{
+                margin: 10px;
+                border-radius: 12px;
+            }}
+
+            .header {{
+                padding: 24px;
+            }}
+
+            .header h1 {{
+                font-size: 2.4em;
+            }}
+
+            .main-content {{
+                padding: 24px;
+            }}
+
+            .metrics-grid {{
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }}
+
+            .chart-container {{
+                padding: 20px;
+            }}
         }}
     </style>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -431,23 +596,27 @@ class VisualizationReportDemo:
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 QTE量化交易引擎</h1>
-            <p>演示系统综合分析报告</p>
-            <p>生成时间: {timestamp}</p>
+            <div class="header-content">
+                <h1>QTE量化交易引擎</h1>
+                <div class="subtitle">演示系统综合分析报告</div>
+                <div class="timestamp">生成时间: {timestamp}</div>
+            </div>
         </div>
-        
-        <div class="metrics-grid">
-            {metrics_cards}
+
+        <div class="main-content">
+            <div class="metrics-grid">
+                {metrics_cards}
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">演示系统性能分析</div>
+                {charts_html}
+            </div>
         </div>
-        
-        <div class="chart-container">
-            <div class="chart-title">📊 演示系统性能图表</div>
-            {charts_html}
-        </div>
-        
+
         <div class="footer">
-            <p>🎯 QTE演示系统 | 覆盖率: 97.93% | 测试: 468个 | 通过率: 99.8%</p>
-            <p>展示完整的量化交易流程：数据输入 → 策略执行 → 风险控制 → 回测报告</p>
+            <div class="footer-stats">QTE演示系统 | 覆盖率: 97.93% | 测试: 468个 | 通过率: 99.8%</div>
+            <div class="footer-description">展示完整的量化交易流程：数据输入 → 策略执行 → 风险控制 → 回测报告</div>
         </div>
     </div>
 </body>
@@ -509,7 +678,7 @@ class VisualizationReportDemo:
             <div class="metric-card">
                 <h3>{title}</h3>
                 <div class="metric-value">{value}</div>
-                <p>{description}</p>
+                <div class="metric-description">{description}</div>
             </div>
             """
 
