@@ -1,0 +1,78 @@
+# QTE演示系统默认配置文件
+# 用于高级演示模式的参数配置
+
+# 基本设置
+initial_capital: 1000000.0  # 初始资金 (美元)
+
+# 交易标的
+symbols:
+  - AAPL    # 苹果
+  - GOOGL   # 谷歌
+  - MSFT    # 微软
+  - TSLA    # 特斯拉
+  - AMZN    # 亚马逊
+  - NVDA    # 英伟达
+  - META    # Meta
+  - NFLX    # 奈飞
+
+# 策略配置
+strategies:
+  ma_strategy:
+    enabled: true
+    weight: 0.4
+    parameters:
+      short_window: 10
+      long_window: 30
+      
+  rsi_strategy:
+    enabled: true
+    weight: 0.3
+    parameters:
+      period: 14
+      oversold: 30
+      overbought: 70
+      
+  momentum_strategy:
+    enabled: true
+    weight: 0.3
+    parameters:
+      lookback: 20
+      threshold: 0.02
+
+# 风险管理
+risk:
+  max_position_size: 0.1      # 单个标的最大仓位 (10%)
+  max_daily_loss: 0.02        # 最大日损失 (2%)
+  max_drawdown: 0.15          # 最大回撤 (15%)
+  stop_loss: 0.05             # 止损 (5%)
+  take_profit: 0.10           # 止盈 (10%)
+
+# 执行设置
+execution:
+  commission: 0.001           # 手续费率 (0.1%)
+  slippage: 0.0005           # 滑点 (0.05%)
+  min_order_size: 100        # 最小订单数量
+  max_order_size: 10000      # 最大订单数量
+
+# 数据设置
+data:
+  start_date: "2024-01-01"   # 回测开始日期
+  end_date: "2024-12-31"     # 回测结束日期
+  frequency: "1D"            # 数据频率 (1D=日线)
+  
+# 回测设置
+backtest:
+  benchmark: "SPY"           # 基准指数
+  rebalance_frequency: "1M"  # 再平衡频率 (1M=月度)
+  
+# 报告设置
+reporting:
+  generate_plots: true       # 生成图表
+  save_trades: true         # 保存交易记录
+  detailed_analysis: true   # 详细分析
+  
+# 输出设置
+output:
+  save_data: true           # 保存数据
+  save_results: true        # 保存结果
+  export_format: ["json", "csv"]  # 导出格式
