@@ -142,15 +142,17 @@ class TestEngineManagerEdgeCases:
     
     def test_dispatch_event_with_wildcard_handlers(self):
         """测试事件分发到通配符处理器 - 覆盖第667行"""
-        # 注册通配符处理器
+        # 先初始化引擎
+        self.engine.initialize()
+
+        # 然后注册通配符处理器（在初始化后）
         wildcard_events = []
         def wildcard_handler(event):
             wildcard_events.append(event.event_type)
-        
+
         self.engine.register_event_handler("*", wildcard_handler)
-        
+
         # 启动引擎
-        self.engine.initialize()
         self.engine.start()
         
         # 发送事件
@@ -169,7 +171,10 @@ class TestEngineManagerEdgeCases:
 
     def test_dispatch_event_handler_exception(self):
         """测试事件处理器抛出异常的情况 - 覆盖第688行"""
-        # 注册会抛出异常的处理器
+        # 先初始化引擎
+        self.engine.initialize()
+
+        # 然后注册处理器（在初始化后）
         def error_handler(event):
             raise ValueError("Handler error")
 
@@ -182,7 +187,6 @@ class TestEngineManagerEdgeCases:
         self.engine.register_event_handler("test_event", normal_handler)
 
         # 启动引擎
-        self.engine.initialize()
         self.engine.start()
 
         # 发送事件
