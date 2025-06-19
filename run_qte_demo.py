@@ -166,6 +166,19 @@ def run_report_demo():
     logger.info("📊 可视化报告演示完成")
     return results
 
+def run_datasource_demo():
+    """运行数据源生态系统演示模式"""
+    logger = logging.getLogger('QTE_DEMO')
+    logger.info("🗄️ 启动数据源生态系统演示模式...")
+
+    from demo.datasource_ecosystem_demo import DataSourceEcosystemDemo
+
+    demo = DataSourceEcosystemDemo()
+    results = demo.run_demo()
+
+    logger.info("🗄️ 数据源生态系统演示完成")
+    return results
+
 def run_test_mode():
     """运行测试模式"""
     logger = logging.getLogger('QTE_DEMO')
@@ -202,13 +215,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 演示模式说明:
-  simple    - 简单演示模式，展示基本功能
-  advanced  - 高级演示模式，展示完整功能
-  exchange  - 虚拟交易所演示，展示完整的交易所功能
-  ml        - 机器学习演示，展示ML特征工程和模型训练
-  vnpy      - vnpy集成演示，展示QTE与vnpy的完整集成
-  report    - 可视化报告演示，展示HTML报告和图表生成
-  test      - 测试模式，验证系统功能
+  simple     - 简单演示模式，展示基本功能
+  advanced   - 高级演示模式，展示完整功能
+  exchange   - 虚拟交易所演示，展示完整的交易所功能
+  ml         - 机器学习演示，展示ML特征工程和模型训练
+  vnpy       - vnpy集成演示，展示QTE与vnpy的完整集成
+  report     - 可视化报告演示，展示HTML报告和图表生成
+  datasource - 数据源生态系统演示，展示多数据源管理和性能对比
+  test       - 测试模式，验证系统功能
 
 示例:
   python run_qte_demo.py --mode simple
@@ -217,13 +231,14 @@ def main():
   python run_qte_demo.py --mode ml --verbose
   python run_qte_demo.py --mode vnpy --verbose
   python run_qte_demo.py --mode report --verbose
+  python run_qte_demo.py --mode datasource --verbose
   python run_qte_demo.py --mode test --verbose
         """
     )
     
     parser.add_argument(
         '--mode',
-        choices=['simple', 'advanced', 'exchange', 'ml', 'vnpy', 'report', 'test'],
+        choices=['simple', 'advanced', 'exchange', 'ml', 'vnpy', 'report', 'datasource', 'test'],
         default='simple',
         help='演示模式 (默认: simple)'
     )
@@ -283,6 +298,8 @@ def main():
             results = run_vnpy_demo()
         elif args.mode == 'report':
             results = run_report_demo()
+        elif args.mode == 'datasource':
+            results = run_datasource_demo()
         elif args.mode == 'test':
             results = run_test_mode()
         
