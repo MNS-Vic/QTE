@@ -92,4 +92,19 @@ reflection.md
 Thumbs.db
 
 # 第三方源码目录
-vnpy-4.0.0/ 
+vnpy-4.0.0/
+
+# 性能测试结果
+results/performance/
+*.prof
+
+# 测试输出
+test-results.xml
+coverage_*.xml
+
+# 演示输出
+demo_output/
+demo_reports/*.html
+
+# 临时脚本
+demo_performance_optimization.py
