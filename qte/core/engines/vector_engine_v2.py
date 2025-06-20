@@ -12,11 +12,27 @@ from typing import Dict, List, Union, Optional, Any
 from datetime import datetime
 
 from ..interfaces.engine_interface import (
-    IBacktestEngine, 
-    EngineCapability, 
-    EngineMetrics, 
+    IBacktestEngine,
+    EngineCapability,
+    EngineMetrics,
     BacktestResult
 )
+
+# 导入性能优化模块
+try:
+    from qte.performance.numba_accelerators import (
+        fast_position_calculation,
+        fast_returns_calculation,
+        fast_drawdown_calculation,
+        fast_sharpe_ratio,
+        NUMBA_AVAILABLE
+    )
+    from qte.performance.memory_optimizers import optimize_dataframe_memory
+    PERFORMANCE_OPTIMIZED = True
+except ImportError:
+    NUMBA_AVAILABLE = False
+    PERFORMANCE_OPTIMIZED = False
+    logging.getLogger(__name__).warning("⚠️ 性能优化模块不可用，使用标准实现")
 
 
 class VectorEngineV2(IBacktestEngine):
@@ -130,7 +146,18 @@ class VectorEngineV2(IBacktestEngine):
             if missing_columns:
                 self.logger.error(f"❌ 数据缺少必要列: {missing_columns}")
                 return False
-            
+
+            # 内存优化
+            if PERFORMANCE_OPTIMIZED and len(self._data) > 10000:
+                try:
+                    original_memory = self._data.memory_usage(deep=True).sum()
+                    self._data = optimize_dataframe_memory(self._data, inplace=True)
+                    optimized_memory = self._data.memory_usage(deep=True).sum()
+                    reduction = (original_memory - optimized_memory) / original_memory * 100
+                    self.logger.info(f"✅ 内存优化完成，减少 {reduction:.1f}%")
+                except Exception as e:
+                    self.logger.warning(f"内存优化失败: {e}")
+
             self.logger.info(f"✅ 数据设置成功，数据点数: {len(self._data)}")
             return True
             
@@ -251,27 +278,39 @@ class VectorEngineV2(IBacktestEngine):
             self._signals = pd.DataFrame(columns=['timestamp', 'symbol', 'signal'])
     
     def _calculate_positions(self):
-        """计算持仓"""
+        """计算持仓 - 性能优化版本"""
         if self._signals is None:
             return
-        
+
         # 简化的持仓计算
         positions = self._signals.copy()
-        
+
         if 'signal' in positions.columns:
-            # 将信号转换为持仓
-            positions['position'] = positions['signal'].fillna(0)
-            positions['position'] = positions['position'].cumsum().clip(-1, 1)
+            signals = positions['signal'].fillna(0).values
+
+            # 使用Numba加速的持仓计算
+            if PERFORMANCE_OPTIMIZED:
+                try:
+                    position_values = fast_position_calculation(signals)
+                    positions['position'] = position_values
+                    self.logger.debug("✅ 使用Numba加速持仓计算")
+                except Exception as e:
+                    self.logger.warning(f"Numba持仓计算失败，使用标准方法: {e}")
+                    # 回退到标准方法
+                    positions['position'] = positions['signal'].fillna(0).cumsum().clip(-1, 1)
+            else:
+                # 标准方法
+                positions['position'] = positions['signal'].fillna(0).cumsum().clip(-1, 1)
         else:
             positions['position'] = 0
-        
+
         self._positions = positions
     
     def _calculate_returns(self):
-        """计算收益"""
+        """计算收益 - 性能优化版本"""
         if self._positions is None or self._data is None:
             return
-        
+
         # 合并持仓和价格数据
         if 'timestamp' in self._data.columns and 'timestamp' in self._positions.columns:
             merged = pd.merge(self._positions, self._data, on='timestamp', how='left')
@@ -279,40 +318,85 @@ class VectorEngineV2(IBacktestEngine):
             merged = self._positions.copy()
             if 'close' in self._data.columns:
                 merged['close'] = self._data['close']
-        
+
         # 计算收益
         if 'position' in merged.columns and 'close' in merged.columns:
-            merged['returns'] = merged['close'].pct_change() * merged['position'].shift(1)
-            merged['cumulative_returns'] = (1 + merged['returns'].fillna(0)).cumprod()
-            merged['equity'] = self._initial_capital * merged['cumulative_returns']
+            prices = merged['close'].values
+            positions = merged['position'].values
+
+            # 使用Numba加速的收益计算
+            if PERFORMANCE_OPTIMIZED and len(prices) > 1000:  # 对大数据集使用优化
+                try:
+                    returns, cum_returns, equity = fast_returns_calculation(
+                        prices, positions, self._commission_rate
+                    )
+                    merged['returns'] = returns
+                    merged['cumulative_returns'] = cum_returns
+                    merged['equity'] = self._initial_capital * equity
+                    self.logger.debug("✅ 使用Numba加速收益计算")
+                except Exception as e:
+                    self.logger.warning(f"Numba收益计算失败，使用标准方法: {e}")
+                    # 回退到标准方法
+                    merged['returns'] = merged['close'].pct_change() * merged['position'].shift(1)
+                    merged['cumulative_returns'] = (1 + merged['returns'].fillna(0)).cumprod()
+                    merged['equity'] = self._initial_capital * merged['cumulative_returns']
+            else:
+                # 标准方法
+                merged['returns'] = merged['close'].pct_change() * merged['position'].shift(1)
+                merged['cumulative_returns'] = (1 + merged['returns'].fillna(0)).cumprod()
+                merged['equity'] = self._initial_capital * merged['cumulative_returns']
         else:
             merged['returns'] = 0
             merged['cumulative_returns'] = 1
             merged['equity'] = self._initial_capital
-        
+
         self._results = merged
     
     def _calculate_performance_metrics(self):
-        """计算性能指标"""
+        """计算性能指标 - 性能优化版本"""
         if self._results is None:
             return
-        
+
         # 基本性能指标计算
         if 'returns' in self._results.columns:
             returns = self._results['returns'].dropna()
-            
+
             if len(returns) > 0:
                 total_return = self._results['cumulative_returns'].iloc[-1] - 1
                 annual_return = (1 + total_return) ** (252 / len(returns)) - 1
                 volatility = returns.std() * np.sqrt(252)
-                sharpe_ratio = annual_return / volatility if volatility > 0 else 0
-                
-                # 最大回撤
-                equity = self._results['equity']
-                peak = equity.expanding().max()
-                drawdown = (equity - peak) / peak
-                max_drawdown = drawdown.min()
-                
+
+                # 使用Numba加速的夏普比率计算
+                if PERFORMANCE_OPTIMIZED:
+                    try:
+                        sharpe_ratio = fast_sharpe_ratio(returns.values)
+                        self.logger.debug("✅ 使用Numba加速夏普比率计算")
+                    except Exception as e:
+                        self.logger.warning(f"Numba夏普比率计算失败，使用标准方法: {e}")
+                        sharpe_ratio = annual_return / volatility if volatility > 0 else 0
+                else:
+                    sharpe_ratio = annual_return / volatility if volatility > 0 else 0
+
+                # 使用Numba加速的回撤计算
+                equity = self._results['equity'].values
+                if PERFORMANCE_OPTIMIZED:
+                    try:
+                        drawdowns, max_drawdown = fast_drawdown_calculation(equity)
+                        self.logger.debug("✅ 使用Numba加速回撤计算")
+                    except Exception as e:
+                        self.logger.warning(f"Numba回撤计算失败，使用标准方法: {e}")
+                        # 标准方法
+                        equity_series = self._results['equity']
+                        peak = equity_series.expanding().max()
+                        drawdown = (equity_series - peak) / peak
+                        max_drawdown = drawdown.min()
+                else:
+                    # 标准方法
+                    equity_series = self._results['equity']
+                    peak = equity_series.expanding().max()
+                    drawdown = (equity_series - peak) / peak
+                    max_drawdown = drawdown.min()
+
                 self._performance_metrics = {
                     'total_return': total_return,
                     'annual_return': annual_return,
