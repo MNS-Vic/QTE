@@ -67,12 +67,14 @@ tmp/
 
 # 项目特定临时文件
 fix_*.py
-test_*.py
-*_test.py
 *_debug.py
 simple_test.py
 create_*.py
 start_*.py
+
+# 但保留重要的测试文件
+!tests/unit/core/test_edge_cases_and_exceptions.py
+!tests/performance/test_unified_engine_performance.py
 
 # 临时文档
 *_summary.md
