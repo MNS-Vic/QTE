@@ -1,0 +1,230 @@
+# QTE Alertmanager配置
+# 管理告警路由、分组和通知
+
+global:
+  # SMTP配置
+  smtp_smarthost: 'smtp.company.com:587'
+  smtp_from: 'qte-alerts@company.com'
+  smtp_auth_username: 'qte-alerts@company.com'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # 默认通知模板
+  resolve_timeout: 5m
+
+# 告警路由配置
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default'
+  
+  routes:
+    # 关键业务告警 - 立即通知
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      continue: true
+    
+    # 交易相关告警
+    - match:
+        component: trading
+      receiver: 'trading-team'
+      group_interval: 30s
+      repeat_interval: 15m
+    
+    # 系统资源告警
+    - match:
+        component: system
+      receiver: 'ops-team'
+      group_interval: 1m
+      repeat_interval: 30m
+    
+    # 数据库告警
+    - match:
+        component: database
+      receiver: 'dba-team'
+      group_interval: 30s
+      repeat_interval: 10m
+    
+    # 安全告警
+    - match:
+        component: security
+      receiver: 'security-team'
+      group_wait: 0s
+      repeat_interval: 5m
+    
+    # 业务指标告警
+    - match:
+        component: business
+      receiver: 'business-team'
+      group_interval: 2m
+      repeat_interval: 1h
+
+# 通知接收器配置
+receivers:
+  # 默认接收器
+  - name: 'default'
+    email_configs:
+      - to: 'qte-ops@company.com'
+        subject: '[QTE] {{ .GroupLabels.alertname }} - {{ .Status | toUpper }}'
+        body: |
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          标签: {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          {{ end }}
+
+  # 关键告警接收器
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'qte-critical@company.com'
+        subject: '🚨 [QTE关键告警] {{ .GroupLabels.alertname }}'
+        body: |
+          ⚠️ 检测到关键告警，需要立即处理！
+          
+          {{ range .Alerts }}
+          告警名称: {{ .Annotations.summary }}
+          详细描述: {{ .Annotations.description }}
+          发生时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          严重程度: {{ .Labels.severity }}
+          影响组件: {{ .Labels.component }}
+          
+          处理建议: {{ .Annotations.runbook_url }}
+          {{ end }}
+    
+    webhook_configs:
+      - url: 'http://qte-alerting:8080/webhook/critical'
+        send_resolved: true
+        http_config:
+          bearer_token: '${WEBHOOK_TOKEN}'
+    
+    # 短信通知（通过第三方服务）
+    webhook_configs:
+      - url: 'https://sms-gateway.company.com/send'
+        send_resolved: false
+        http_config:
+          bearer_token: '${SMS_API_TOKEN}'
+
+  # 交易团队接收器
+  - name: 'trading-team'
+    email_configs:
+      - to: 'trading-team@company.com'
+        subject: '[QTE交易] {{ .GroupLabels.alertname }} - {{ .Status | toUpper }}'
+        body: |
+          交易系统告警通知
+          
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          
+          {{ if .Labels.strategy_name }}策略: {{ .Labels.strategy_name }}{{ end }}
+          {{ if .Labels.symbol }}标的: {{ .Labels.symbol }}{{ end }}
+          {{ end }}
+    
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#qte-trading-alerts'
+        title: 'QTE交易告警'
+        text: |
+          {{ range .Alerts }}
+          *{{ .Annotations.summary }}*
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # 运维团队接收器
+  - name: 'ops-team'
+    email_configs:
+      - to: 'ops-team@company.com'
+        subject: '[QTE运维] {{ .GroupLabels.alertname }}'
+        body: |
+          系统运维告警
+          
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          主机: {{ .Labels.instance }}
+          {{ end }}
+
+  # 数据库团队接收器
+  - name: 'dba-team'
+    email_configs:
+      - to: 'dba-team@company.com'
+        subject: '[QTE数据库] {{ .GroupLabels.alertname }}'
+        body: |
+          数据库告警通知
+          
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          数据库: {{ .Labels.database }}
+          {{ end }}
+
+  # 安全团队接收器
+  - name: 'security-team'
+    email_configs:
+      - to: 'security-team@company.com'
+        subject: '🔒 [QTE安全] {{ .GroupLabels.alertname }}'
+        body: |
+          安全告警通知
+          
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          来源IP: {{ .Labels.source_ip }}
+          {{ end }}
+    
+    webhook_configs:
+      - url: 'http://security-siem:8080/alerts'
+        send_resolved: true
+
+  # 业务团队接收器
+  - name: 'business-team'
+    email_configs:
+      - to: 'business-team@company.com'
+        subject: '[QTE业务] {{ .GroupLabels.alertname }}'
+        body: |
+          业务指标告警
+          
+          {{ range .Alerts }}
+          告警: {{ .Annotations.summary }}
+          描述: {{ .Annotations.description }}
+          时间: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+          当前值: {{ .Labels.current_value }}
+          阈值: {{ .Labels.threshold }}
+          {{ end }}
+
+# 抑制规则
+inhibit_rules:
+  # 如果QTE应用宕机，抑制其他相关告警
+  - source_match:
+      alertname: QTEApplicationDown
+    target_match:
+      service: qte
+    equal: ['instance']
+  
+  # 如果数据库宕机，抑制数据库相关告警
+  - source_match:
+      alertname: PostgreSQLDown
+    target_match:
+      component: database
+    equal: ['instance']
+  
+  # 如果网络问题，抑制外部API告警
+  - source_match:
+      alertname: HighNetworkLatency
+    target_match:
+      component: network
+    equal: ['instance']
+
+# 模板配置
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

@@ -1,0 +1,278 @@
+# QTE Production Configuration
+# Optimized for high-performance trading environment
+
+# Application Settings
+app:
+  name: "QTE Trading Engine"
+  version: "1.0.0"
+  environment: "production"
+  debug: false
+  timezone: "UTC"
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8080
+  admin_port: 8081
+  metrics_port: 9090
+  workers: 4
+  max_connections: 1000
+  keepalive_timeout: 65
+  request_timeout: 30
+
+# Engine Configuration
+engine:
+  # Core Engine Settings
+  core:
+    event_queue_size: 100000
+    max_event_handlers: 1000
+    event_processing_timeout: 5.0
+    thread_pool_size: 8
+    enable_performance_monitoring: true
+    
+  # Time Management
+  time:
+    mode: "real"  # real, virtual, replay
+    update_interval: 0.001  # 1ms precision
+    timezone: "UTC"
+    
+  # Event Processing
+  events:
+    batch_size: 1000
+    processing_interval: 0.01
+    max_queue_depth: 50000
+    enable_event_persistence: true
+    
+  # Memory Management
+  memory:
+    max_heap_size: "1.5G"
+    gc_threshold: 0.8
+    enable_memory_profiling: false
+
+# Trading Configuration
+trading:
+  # Exchange Settings
+  exchanges:
+    virtual:
+      enabled: true
+      latency_simulation: 0.001  # 1ms
+      slippage_model: "linear"
+      commission_rate: 0.001
+      
+  # Portfolio Management
+  portfolio:
+    initial_capital: 1000000.0
+    max_position_size: 0.1  # 10% of portfolio
+    risk_limit: 0.02  # 2% daily risk limit
+    enable_risk_monitoring: true
+    
+  # Order Management
+  orders:
+    max_order_size: 100000.0
+    order_timeout: 30.0
+    enable_order_validation: true
+    max_pending_orders: 1000
+
+# Data Configuration
+data:
+  # Market Data
+  market_data:
+    providers:
+      - name: "csv"
+        enabled: true
+        path: "/app/data/market"
+        format: "csv"
+        
+    # Data Quality
+    validation:
+      enable_price_checks: true
+      max_price_deviation: 0.1  # 10%
+      enable_volume_checks: true
+      
+    # Caching
+    cache:
+      enabled: true
+      ttl: 300  # 5 minutes
+      max_size: 10000
+      
+  # Historical Data
+  historical:
+    storage_path: "/app/data/historical"
+    compression: "gzip"
+    retention_days: 365
+    
+# Database Configuration
+database:
+  # PostgreSQL
+  postgres:
+    host: "postgres"
+    port: 5432
+    database: "qte"
+    username: "qte"
+    password: "${POSTGRES_PASSWORD}"
+    pool_size: 20
+    max_overflow: 30
+    pool_timeout: 30
+    pool_recycle: 3600
+    
+  # Redis
+  redis:
+    host: "redis"
+    port: 6379
+    database: 0
+    password: ""
+    pool_size: 20
+    socket_timeout: 5.0
+    socket_connect_timeout: 5.0
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  
+  # File Logging
+  file:
+    enabled: true
+    path: "/app/logs"
+    max_size: "100MB"
+    backup_count: 10
+    rotation: "daily"
+    
+  # Console Logging
+  console:
+    enabled: true
+    level: "INFO"
+    
+  # Structured Logging
+  structured:
+    enabled: true
+    include_trace_id: true
+    include_request_id: true
+    
+  # Log Levels by Component
+  loggers:
+    qte.core.engine_manager: "INFO"
+    qte.core.event_engine: "INFO"
+    qte.exchanges: "INFO"
+    qte.portfolio: "INFO"
+    qte.strategies: "INFO"
+    qte.data: "WARNING"
+
+# Monitoring Configuration
+monitoring:
+  # Metrics
+  metrics:
+    enabled: true
+    endpoint: "/metrics"
+    include_system_metrics: true
+    include_business_metrics: true
+    
+  # Health Checks
+  health:
+    enabled: true
+    endpoint: "/health"
+    checks:
+      - database
+      - redis
+      - disk_space
+      - memory_usage
+      
+  # Performance Monitoring
+  performance:
+    enabled: true
+    sample_rate: 0.1  # 10% sampling
+    include_sql_queries: false
+    include_external_calls: true
+    
+  # Alerting
+  alerts:
+    enabled: true
+    webhook_url: "${ALERT_WEBHOOK_URL}"
+    
+    # Alert Thresholds
+    thresholds:
+      cpu_usage: 80
+      memory_usage: 85
+      disk_usage: 90
+      error_rate: 0.05  # 5%
+      response_time: 1.0  # 1 second
+
+# Security Configuration
+security:
+  # API Security
+  api:
+    enable_authentication: true
+    enable_rate_limiting: true
+    rate_limit: 1000  # requests per minute
+    
+  # Encryption
+  encryption:
+    algorithm: "AES-256-GCM"
+    key_rotation_days: 90
+    
+  # Access Control
+  access:
+    admin_ips:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+      - "172.16.0.0/12"
+      - "192.168.0.0/16"
+
+# Performance Tuning
+performance:
+  # CPU Optimization
+  cpu:
+    affinity: true
+    priority: "high"
+    
+  # Memory Optimization
+  memory:
+    preallocation: true
+    huge_pages: false
+    
+  # I/O Optimization
+  io:
+    async_enabled: true
+    buffer_size: 65536
+    
+  # Network Optimization
+  network:
+    tcp_nodelay: true
+    tcp_keepalive: true
+    socket_buffer_size: 262144
+
+# Backup Configuration
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention_days: 30
+  storage_path: "/app/backups"
+  compression: true
+  
+  # Backup Types
+  types:
+    - database
+    - logs
+    - configuration
+    - market_data
+
+# Feature Flags
+features:
+  enable_backtesting: true
+  enable_paper_trading: true
+  enable_live_trading: false  # Disabled by default in production
+  enable_strategy_optimization: true
+  enable_risk_management: true
+  enable_compliance_monitoring: true
+
+# Environment Variables
+env_vars:
+  required:
+    - POSTGRES_PASSWORD
+    - REDIS_PASSWORD
+    - JWT_SECRET_KEY
+    - ENCRYPTION_KEY
+  optional:
+    - ALERT_WEBHOOK_URL
+    - EXTERNAL_API_KEY
+    - MARKET_DATA_API_KEY

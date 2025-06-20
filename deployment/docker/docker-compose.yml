@@ -1,0 +1,211 @@
+# QTE Production Docker Compose Configuration
+version: '3.8'
+
+services:
+  # QTE Trading Engine
+  qte-engine:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile
+      target: production
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VERSION: ${QTE_VERSION:-1.0.0}
+        VCS_REF: ${GIT_COMMIT:-$(git rev-parse HEAD)}
+    image: qte:${QTE_VERSION:-latest}
+    container_name: qte-engine
+    restart: unless-stopped
+    environment:
+      - QTE_ENV=production
+      - QTE_LOG_LEVEL=${QTE_LOG_LEVEL:-INFO}
+      - QTE_CONFIG_PATH=/app/config
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_URL=postgresql://qte:${POSTGRES_PASSWORD}@postgres:5432/qte
+      - PROMETHEUS_GATEWAY=http://prometheus:9090
+    ports:
+      - "8080:8080"  # Main API
+      - "8081:8081"  # Admin API
+      - "9090:9090"  # Metrics
+    volumes:
+      - qte-logs:/app/logs
+      - qte-data:/app/data
+      - qte-backups:/app/backups
+      - ./config:/app/config:ro
+    depends_on:
+      - redis
+      - postgres
+      - prometheus
+    networks:
+      - qte-network
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # Redis for caching and message queuing
+  redis:
+    image: redis:7-alpine
+    container_name: qte-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - qte-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # PostgreSQL for persistent data
+  postgres:
+    image: postgres:15-alpine
+    container_name: qte-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=qte
+      - POSTGRES_USER=qte
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - qte-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qte -d qte"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: qte-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - qte-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: qte-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - qte-network
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: qte-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - qte-network
+    depends_on:
+      - qte-engine
+      - grafana
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Log aggregation
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    container_name: qte-fluentd
+    restart: unless-stopped
+    volumes:
+      - ./logging/fluentd.conf:/fluentd/etc/fluent.conf:ro
+      - qte-logs:/app/logs:ro
+      - nginx-logs:/var/log/nginx:ro
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    networks:
+      - qte-network
+    depends_on:
+      - qte-engine
+
+# Networks
+networks:
+  qte-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Volumes
+volumes:
+  qte-logs:
+    driver: local
+  qte-data:
+    driver: local
+  qte-backups:
+    driver: local
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  nginx-logs:
+    driver: local

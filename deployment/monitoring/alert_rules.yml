@@ -1,0 +1,328 @@
+# QTE Prometheus Alert Rules
+# Production alerting for critical system conditions
+
+groups:
+  # QTE Application Alerts
+  - name: qte_application
+    rules:
+      - alert: QTEApplicationDown
+        expr: up{job="qte-engine"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: qte
+        annotations:
+          summary: "QTE application is down"
+          description: "QTE trading engine has been down for more than 30 seconds"
+          runbook_url: "https://docs.qte.com/runbooks/application-down"
+
+      - alert: QTEHighErrorRate
+        expr: rate(qte_errors_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: qte
+        annotations:
+          summary: "High error rate in QTE application"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      - alert: QTEHighLatency
+        expr: histogram_quantile(0.95, rate(qte_request_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          service: qte
+        annotations:
+          summary: "High latency in QTE application"
+          description: "95th percentile latency is {{ $value }}s over the last 5 minutes"
+
+      - alert: QTEEventQueueBacklog
+        expr: qte_event_queue_size > 10000
+        for: 1m
+        labels:
+          severity: warning
+          service: qte
+        annotations:
+          summary: "QTE event queue backlog"
+          description: "Event queue has {{ $value }} pending events"
+
+      - alert: QTEMemoryUsageHigh
+        expr: qte_memory_usage_bytes / qte_memory_limit_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: qte
+        annotations:
+          summary: "QTE memory usage high"
+          description: "Memory usage is {{ $value | humanizePercentage }} of limit"
+
+  # System Resource Alerts
+  - name: system_resources
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: HighDiskUsage
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Low disk space"
+          description: "Less than 10% disk space remaining on {{ $labels.instance }}"
+
+  # Database Alerts
+  - name: database
+    rules:
+      - alert: PostgreSQLDown
+        expr: up{job="postgres-exporter"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL database has been down for more than 30 seconds"
+
+      - alert: PostgreSQLHighConnections
+        expr: pg_stat_database_numbackends / pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL high connection usage"
+          description: "Connection usage is {{ $value | humanizePercentage }}"
+
+      - alert: PostgreSQLSlowQueries
+        expr: rate(pg_stat_database_tup_returned[5m]) / rate(pg_stat_database_tup_fetched[5m]) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "PostgreSQL slow queries detected"
+          description: "Query efficiency is low: {{ $value | humanizePercentage }}"
+
+      - alert: RedisDown
+        expr: up{job="redis-exporter"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache has been down for more than 30 seconds"
+
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+  # Trading Specific Alerts
+  - name: trading
+    rules:
+      - alert: TradingEngineStalled
+        expr: increase(qte_events_processed_total[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "Trading engine appears stalled"
+          description: "No events processed in the last 5 minutes"
+
+      - alert: HighOrderRejectionRate
+        expr: rate(qte_orders_rejected_total[5m]) / rate(qte_orders_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "High order rejection rate"
+          description: "Order rejection rate is {{ $value | humanizePercentage }}"
+
+      - alert: PortfolioRiskLimitExceeded
+        expr: qte_portfolio_risk_exposure > qte_portfolio_risk_limit
+        for: 1m
+        labels:
+          severity: critical
+          component: trading
+        annotations:
+          summary: "Portfolio risk limit exceeded"
+          description: "Current risk exposure: {{ $value }}, Limit: {{ $labels.limit }}"
+
+      - alert: UnusualTradingVolume
+        expr: rate(qte_trades_total[5m]) > 2 * rate(qte_trades_total[1h] offset 1h)
+        for: 5m
+        labels:
+          severity: warning
+          component: trading
+        annotations:
+          summary: "Unusual trading volume detected"
+          description: "Trading volume is {{ $value }}x higher than usual"
+
+  # Network and Connectivity Alerts
+  - name: network
+    rules:
+      - alert: HighNetworkLatency
+        expr: qte_external_api_latency_seconds > 1.0
+        for: 3m
+        labels:
+          severity: warning
+          component: network
+        annotations:
+          summary: "High network latency to external APIs"
+          description: "API latency is {{ $value }}s"
+
+      - alert: ExternalAPIDown
+        expr: qte_external_api_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: network
+        annotations:
+          summary: "External API is down"
+          description: "Cannot connect to external API: {{ $labels.api_name }}"
+
+      - alert: WebSocketConnectionLoss
+        expr: qte_websocket_connections < 1
+        for: 30s
+        labels:
+          severity: critical
+          component: network
+        annotations:
+          summary: "WebSocket connection lost"
+          description: "No active WebSocket connections to market data feeds"
+
+  # Security Alerts
+  - name: security
+    rules:
+      - alert: UnauthorizedAccess
+        expr: rate(qte_auth_failures_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value }} authentication failures per second"
+
+      - alert: SuspiciousActivity
+        expr: rate(qte_suspicious_requests_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Suspicious activity detected"
+          description: "{{ $value }} suspicious requests per second"
+
+      - alert: SecurityScannerDown
+        expr: up{job="security-scanner"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "安全扫描器已停机"
+          description: "安全监控系统未激活"
+
+  # 业务指标告警
+  - name: business_metrics
+    rules:
+      - alert: DailyPnLExceedsLimit
+        expr: qte_daily_pnl < -50000
+        for: 1m
+        labels:
+          severity: critical
+          component: business
+        annotations:
+          summary: "日收益超出风险限制"
+          description: "当日损失已达到 {{ $value }} 元，超出风险控制限制"
+
+      - alert: LowTradingVolume
+        expr: rate(qte_trades_total[1h]) < 10
+        for: 30m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "交易量异常偏低"
+          description: "过去1小时交易量仅为 {{ $value }} 笔，可能存在系统问题"
+
+      - alert: StrategyPerformanceDegraded
+        expr: qte_strategy_sharpe_ratio < 0.5
+        for: 15m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "策略表现下降"
+          description: "策略夏普比率降至 {{ $value }}，需要检查策略逻辑"
+
+  # 数据质量告警
+  - name: data_quality
+    rules:
+      - alert: MarketDataStale
+        expr: time() - qte_last_market_data_timestamp > 300
+        for: 1m
+        labels:
+          severity: critical
+          component: data
+        annotations:
+          summary: "市场数据过期"
+          description: "最后一次市场数据更新距今已超过5分钟"
+
+      - alert: DataFeedDisconnected
+        expr: qte_data_feed_connected == 0
+        for: 30s
+        labels:
+          severity: critical
+          component: data
+        annotations:
+          summary: "数据源连接断开"
+          description: "与市场数据源的连接已断开"
+
+      - alert: PriceDataAnomalies
+        expr: rate(qte_price_anomalies_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: data
+        annotations:
+          summary: "价格数据异常"
+          description: "检测到异常价格数据，异常率为 {{ $value | humanizePercentage }}"

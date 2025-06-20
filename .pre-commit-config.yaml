@@ -1,0 +1,141 @@
+# QTE Pre-commit Configuration
+# Ensures code quality and consistency before commits
+
+repos:
+  # Code formatting
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+        args: [--line-length=100]
+        exclude: ^(docs/|build/|dist/)
+
+  # Import sorting
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile=black, --line-length=100]
+        exclude: ^(docs/|build/|dist/)
+
+  # Linting
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: [--max-line-length=100, --extend-ignore=E203,W503]
+        exclude: ^(docs/|build/|dist/)
+        additional_dependencies:
+          - flake8-docstrings
+          - flake8-bugbear
+          - flake8-comprehensions
+
+  # Security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: [-r, qte/, -f, json, -o, bandit-report.json]
+        exclude: ^(tests/|docs/|build/|dist/)
+
+  # Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --no-strict-optional]
+        exclude: ^(tests/|docs/|build/|dist/)
+        additional_dependencies:
+          - types-requests
+          - types-PyYAML
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(docs/|\.md$)
+      - id: end-of-file-fixer
+        exclude: ^(docs/|\.md$)
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: debug-statements
+      - id: check-docstring-first
+
+  # Documentation checks
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args: [--convention=google]
+        exclude: ^(tests/|docs/|build/|dist/)
+
+  # Test coverage check
+  - repo: local
+    hooks:
+      - id: test-coverage
+        name: Test Coverage Check
+        entry: python
+        language: system
+        args: [-m, pytest, tests/unit/core/, --cov=qte.core, --cov-fail-under=90, --tb=no, -q]
+        pass_filenames: false
+        stages: [pre-push]
+
+  # Performance regression check
+  - repo: local
+    hooks:
+      - id: performance-check
+        name: Performance Regression Check
+        entry: python
+        language: system
+        args: [-m, pytest, tests/performance/test_qte_comprehensive_performance.py::TestCoreEnginePerformance::test_engine_manager_startup_performance, --benchmark-only, --benchmark-max-time=10]
+        pass_filenames: false
+        stages: [pre-push]
+
+  # Quality gate validation
+  - repo: local
+    hooks:
+      - id: quality-gate
+        name: Quality Gate Validation
+        entry: python
+        language: system
+        args: [scripts/validate_quality_gates.py, --coverage-file, coverage.xml, --min-coverage, 90.0, --core-coverage, 93.0]
+        pass_filenames: false
+        stages: [pre-push]
+
+# Configuration for different stages
+default_stages: [commit]
+
+# Exclude patterns
+exclude: |
+  (?x)^(
+    \.git/|
+    \.tox/|
+    \.venv/|
+    venv/|
+    __pycache__/|
+    \.pytest_cache/|
+    build/|
+    dist/|
+    \.egg-info/|
+    docs/_build/|
+    htmlcov/
+  )
+
+# CI configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: [test-coverage, performance-check, quality-gate]
+  submodules: false
