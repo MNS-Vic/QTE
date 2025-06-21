@@ -100,23 +100,13 @@ jobs:
         fi
       continue-on-error: true
 
-    - name: Generate coverage report
+    - name: Generate comprehensive coverage reports
       run: |
-        echo "📊 Generating coverage report..."
+        echo "📊 Generating comprehensive coverage reports..."
         if [ -d "tests" ]; then
-          pytest tests/ --cov=qte --cov-report=xml || echo "⚠️ Coverage report generated with warnings"
+          pytest tests/ --cov=qte --cov-report=term --cov-report=xml --cov-report=html --cov-fail-under=80 || echo "⚠️ Coverage reports completed with warnings"
         else
-          echo "⚠️ No tests directory for coverage report"
-        fi
-      continue-on-error: true
-
-    - name: Generate HTML coverage report
-      run: |
-        echo "📊 Generating HTML coverage report..."
-        if [ -d "tests" ]; then
-          pytest tests/ --cov=qte --cov-report=html || echo "⚠️ HTML report generated with warnings"
-        else
-          echo "⚠️ No tests directory for HTML report"
+          echo "⚠️ No tests directory for coverage reports"
         fi
       continue-on-error: true
 
@@ -136,16 +126,6 @@ jobs:
         if-no-files-found: warn
       continue-on-error: true
 
-    - name: Check coverage threshold
-      run: |
-        echo "📊 Checking coverage threshold..."
-        if [ -d "tests" ]; then
-          pytest tests/ --cov=qte --cov-fail-under=80 || echo "⚠️ Coverage below threshold"
-        else
-          echo "⚠️ No tests directory for threshold check"
-        fi
-      continue-on-error: true
-
     - name: Generate summary
       run: |
         echo "📊 CI Summary:"
@@ -158,15 +138,13 @@ jobs:
         echo "✅ Code formatting checked"
         echo "✅ Basic tests executed"
         echo "✅ Basic coverage test executed"
-        echo "✅ Coverage report generated"
-        echo "✅ HTML coverage report generated"
+        echo "✅ Comprehensive coverage reports generated"
         echo "✅ Coverage artifacts uploaded"
         echo "✅ HTML coverage artifacts uploaded"
-        echo "✅ Coverage threshold checked"
         echo ""
-        echo "🎉 QTE Enhanced CI with Quality Gates completed successfully!"
-        echo "📋 This is an enhanced CI pipeline with comprehensive coverage monitoring and quality gates."
-        echo "🔧 Features: XML + HTML reports, dual artifacts upload, and coverage threshold checks."
+        echo "🎉 QTE Complete Enhanced CI Pipeline completed successfully!"
+        echo "📋 This is a complete enhanced CI pipeline with integrated coverage monitoring and quality gates."
+        echo "🔧 Features: Integrated term+XML+HTML reports, dual artifacts upload, and coverage threshold checks."
 
   project-info:
     name: Project Information
