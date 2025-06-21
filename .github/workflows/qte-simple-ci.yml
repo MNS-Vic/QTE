@@ -8,9 +8,13 @@ on:
 
 jobs:
   basic-checks:
-    name: Basic Quality Checks
+    name: Basic Quality Checks (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11]
+      fail-fast: false
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -18,7 +22,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
     
     - name: Install basic dependencies
       run: |
@@ -158,7 +162,7 @@ jobs:
       run: |
         echo "📊 CI Summary:"
         echo "✅ Checkout completed"
-        echo "✅ Python 3.11 setup completed"
+        echo "✅ Python ${{ matrix.python-version }} setup completed"
         echo "✅ Basic dependencies installed"
         echo "✅ Project structure checked"
         echo "✅ Python syntax validated"
@@ -172,10 +176,11 @@ jobs:
         echo "✅ Basic performance tests executed"
         echo "✅ Basic security scan executed"
         echo "✅ Dependency security check executed"
+        echo "✅ Multi-Python version testing (Python ${{ matrix.python-version }})"
         echo ""
-        echo "🎉 QTE Advanced CI with Comprehensive Security Pipeline completed successfully!"
-        echo "📋 This is an advanced CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, and dependency security checks."
-        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, and dependency security monitoring."
+        echo "🎉 QTE Complete Advanced CI with Multi-Version Testing Pipeline completed successfully!"
+        echo "📋 This is a complete advanced CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, dependency security checks, and multi-Python version compatibility testing."
+        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, dependency security monitoring, and multi-version compatibility validation."
 
   project-info:
     name: Project Information
