@@ -128,6 +128,14 @@ jobs:
         if-no-files-found: warn
       continue-on-error: true
 
+    - name: Upload HTML coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html
+        path: htmlcov/
+        if-no-files-found: warn
+      continue-on-error: true
+
     - name: Generate summary
       run: |
         echo "📊 CI Summary:"
@@ -143,10 +151,11 @@ jobs:
         echo "✅ Coverage report generated"
         echo "✅ HTML coverage report generated"
         echo "✅ Coverage artifacts uploaded"
+        echo "✅ HTML coverage artifacts uploaded"
         echo ""
-        echo "🎉 QTE Enhanced CI with Coverage Reports completed successfully!"
+        echo "🎉 QTE Enhanced CI with Complete Coverage Pipeline completed successfully!"
         echo "📋 This is an enhanced CI pipeline with comprehensive coverage monitoring and reporting."
-        echo "🔧 Features: XML + HTML reports, artifacts upload, and quality checks."
+        echo "🔧 Features: XML + HTML reports, dual artifacts upload, and quality checks."
 
   project-info:
     name: Project Information
