@@ -111,10 +111,11 @@ jobs:
       continue-on-error: true
 
     - name: Upload coverage
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage
         path: coverage.xml
+        if-no-files-found: warn
       continue-on-error: true
 
     - name: Generate summary
