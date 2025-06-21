@@ -23,7 +23,7 @@ jobs:
     - name: Install basic dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest flake8 black
+        pip install pytest flake8 black pytest-cov
         echo "✅ Basic dependencies installed successfully"
     
     - name: Check project structure
