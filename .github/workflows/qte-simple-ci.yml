@@ -2,7 +2,7 @@ name: QTE Simple CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ci-ultra-conservative-test ]
   pull_request:
     branches: [ main ]
 
