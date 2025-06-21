@@ -132,14 +132,14 @@ jobs:
           if [ -f "coverage.xml" ]; then
             echo "✅ Coverage report generated: coverage.xml"
             
-            # Extract coverage percentage
+            # Extract coverage percentage (simplified without bc)
             coverage_line=$(grep -o 'line-rate="[0-9.]*"' coverage.xml | head -1)
             if [ -n "$coverage_line" ]; then
               coverage_rate=$(echo "$coverage_line" | grep -o '[0-9.]*')
-              coverage_percent=$(echo "$coverage_rate * 100" | bc 2>/dev/null || echo "0")
-              coverage_int=${coverage_percent%.*}
+              # Convert to percentage using awk instead of bc
+              coverage_int=$(echo "$coverage_rate" | awk '{printf "%.0f", $1*100}')
               echo "📊 Current coverage: ${coverage_int}%"
-              
+
               if [ "$coverage_int" -ge "${{ env.MIN_COVERAGE_THRESHOLD }}" ]; then
                 echo "✅ Coverage threshold met (${coverage_int}% >= ${{ env.MIN_COVERAGE_THRESHOLD }}%)"
               else
