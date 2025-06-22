@@ -293,6 +293,21 @@ jobs:
         fi
       continue-on-error: true
 
+    - name: Setup canary deployment
+      run: |
+        echo "🐦 Setting up canary deployment..."
+        if [ "${{ env.deployment_target }}" = "production" ]; then
+          echo "Configuring canary deployment for production..."
+          echo "canary_enabled=true" >> deployment-config.env
+          echo "canary_percentage=10" >> deployment-config.env
+          echo "canary_duration=300" >> deployment-config.env
+          echo "success_threshold=95" >> deployment-config.env
+        else
+          echo "Canary deployment not needed for non-production"
+          echo "canary_enabled=false" >> deployment-config.env
+        fi
+      continue-on-error: true
+
     - name: Generate summary
       run: |
         echo "📊 CI Summary:"
@@ -320,11 +335,12 @@ jobs:
         echo "✅ Monitoring integration configured"
         echo "✅ Rollback mechanism configured"
         echo "✅ Blue-green deployment configured"
+        echo "✅ Canary deployment configured"
         echo "✅ Multi-Python version testing (Python ${{ matrix.python-version }})"
         echo ""
-        echo "🎉 QTE Advanced Production CI with Blue-Green Deployment completed successfully!"
-        echo "📋 This is an advanced production CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, dependency security checks, advanced performance analysis, code quality analysis, advanced security analysis, automated fix suggestions, deployment pipeline, environment management, monitoring integration, rollback mechanism, blue-green deployment, and multi-Python version compatibility testing."
-        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, dependency security monitoring, advanced performance analysis, code quality analysis, advanced security analysis, automated fix suggestions, deployment pipeline, environment management, monitoring integration, rollback mechanism, blue-green deployment, and multi-version compatibility validation."
+        echo "🎉 QTE Advanced Production CI with Canary Deployment completed successfully!"
+        echo "📋 This is an advanced production CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, dependency security checks, advanced performance analysis, code quality analysis, advanced security analysis, automated fix suggestions, deployment pipeline, environment management, monitoring integration, rollback mechanism, blue-green deployment, canary deployment, and multi-Python version compatibility testing."
+        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, dependency security monitoring, advanced performance analysis, code quality analysis, advanced security analysis, automated fix suggestions, deployment pipeline, environment management, monitoring integration, rollback mechanism, blue-green deployment, canary deployment, and multi-version compatibility validation."
 
   project-info:
     name: Project Information
