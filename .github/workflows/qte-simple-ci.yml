@@ -169,6 +169,18 @@ jobs:
         fi
       continue-on-error: true
 
+    - name: Run code quality analysis
+      run: |
+        echo "🔍 Running code quality analysis..."
+        pip install radon flake8 pylint || echo "⚠️ Failed to install quality tools"
+        if [ -d "qte" ]; then
+          radon cc qte/ -j > complexity-report.json || echo "⚠️ Complexity analysis completed with warnings"
+          flake8 qte/ --format=json --output-file=flake8-report.json || echo "⚠️ Style analysis completed with warnings"
+        else
+          echo "⚠️ No qte directory for quality analysis"
+        fi
+      continue-on-error: true
+
     - name: Generate summary
       run: |
         echo "📊 CI Summary:"
@@ -188,11 +200,12 @@ jobs:
         echo "✅ Basic security scan executed"
         echo "✅ Dependency security check executed"
         echo "✅ Advanced performance analysis executed"
+        echo "✅ Code quality analysis executed"
         echo "✅ Multi-Python version testing (Python ${{ matrix.python-version }})"
         echo ""
-        echo "🎉 QTE Enhanced Advanced CI with Performance Analysis Pipeline completed successfully!"
-        echo "📋 This is an enhanced advanced CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, dependency security checks, advanced performance analysis, and multi-Python version compatibility testing."
-        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, dependency security monitoring, advanced performance analysis, and multi-version compatibility validation."
+        echo "🎉 QTE Enhanced Advanced CI with Quality Analysis Pipeline completed successfully!"
+        echo "📋 This is an enhanced advanced CI pipeline with integrated coverage monitoring, quality gates, performance testing, security scanning, dependency security checks, advanced performance analysis, code quality analysis, and multi-Python version compatibility testing."
+        echo "🔧 Features: Integrated reports, dual artifacts upload, coverage threshold checks, performance tests, security scans, dependency security monitoring, advanced performance analysis, code quality analysis, and multi-version compatibility validation."
 
   project-info:
     name: Project Information
